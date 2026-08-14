@@ -4,7 +4,7 @@ services:
     container_name: coupon-mysql
     restart: unless-stopped
     ports:
-      - "${MYSQL_PORT:-3306}:3306"
+      - "${MYSQL_PORT:-3307}:3307"
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE}
@@ -44,7 +44,7 @@ services:
     container_name: coupon-kafka
     restart: unless-stopped
     ports:
-      - "${KAFKA_PORT:-9092}:9092"
+      - "${KAFKA_PORT:-9095}:9095"
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
