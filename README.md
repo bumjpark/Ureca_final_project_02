@@ -20,5 +20,4 @@ docker compose up -d
 ```
 
 - Kafka UI: http://localhost:8090
-- `.env`는 개인 로컬 값이라 git에 커밋되지 않습니다. 새로 값이 필요해지면 `.env.example`도 같이 업데이트해주세요.
-test
+
