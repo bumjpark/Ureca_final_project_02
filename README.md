@@ -259,7 +259,7 @@ Redis에서 재고를 차감한 이후 Kafka Consumer 또는 DB 장애로 영속
 
 ---
 
-## 10순위. k6 부하 테스트 실행자(Executor) 선택 — Ramping VUs vs Ramping Arrival Rate
+## 10순위. 부하 테스트 방법론
 - 부하 테스트 시나리오를 설계할 때 Ramping VUs 방식과 Ramping Arrival Rate 방식 중 어떤 것을 사용하는 것이 선착순 이벤트 트래픽 패턴(순간적인 요청 폭주)을 재현하는 데 더 적합한지 궁금합니다.
 - VU 수 기반으로 부하를 조절하는 것과 초당 요청 수(arrival rate) 자체를 직접 제어하는 것이 실제 병목 지점을 찾는 데 어떤 차이를 만드는지도 궁금합니다.
 
