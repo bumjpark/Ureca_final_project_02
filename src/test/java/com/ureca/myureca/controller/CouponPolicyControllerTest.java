@@ -1,4 +1,4 @@
-package com.ureca.myureca.controller.admin;
+package com.ureca.myureca.controller;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
@@ -11,9 +11,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.ureca.myureca.domain.coupon.CouponPolicy;
 import com.ureca.myureca.domain.coupon.CouponType;
-import com.ureca.myureca.dto.coupon.CouponPolicyCreateRequest;
-import com.ureca.myureca.dto.coupon.CouponPolicyResponse;
-import com.ureca.myureca.service.coupon.CouponPolicyService;
+import com.ureca.myureca.dto.CouponPolicyCreateRequest;
+import com.ureca.myureca.dto.CouponPolicyResponse;
+import com.ureca.myureca.service.CouponPolicyService;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

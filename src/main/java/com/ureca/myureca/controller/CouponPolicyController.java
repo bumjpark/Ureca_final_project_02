@@ -1,8 +1,8 @@
-package com.ureca.myureca.controller.admin;
+package com.ureca.myureca.controller;
 
-import com.ureca.myureca.dto.coupon.CouponPolicyCreateRequest;
-import com.ureca.myureca.dto.coupon.CouponPolicyResponse;
-import com.ureca.myureca.service.coupon.CouponPolicyService;
+import com.ureca.myureca.dto.CouponPolicyCreateRequest;
+import com.ureca.myureca.dto.CouponPolicyResponse;
+import com.ureca.myureca.service.CouponPolicyService;
 import jakarta.validation.Valid;
 import java.net.URI;
 import lombok.RequiredArgsConstructor;

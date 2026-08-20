@@ -1,11 +1,11 @@
-package com.ureca.myureca.service.coupon;
+package com.ureca.myureca.service;
 
 import com.ureca.myureca.domain.coupon.CouponPolicy;
 import com.ureca.myureca.domain.coupon.CouponType;
-import com.ureca.myureca.dto.coupon.CouponPolicyCreateRequest;
-import com.ureca.myureca.dto.coupon.CouponPolicyResponse;
+import com.ureca.myureca.dto.CouponPolicyCreateRequest;
+import com.ureca.myureca.dto.CouponPolicyResponse;
 import com.ureca.myureca.exception.InvalidCouponPolicyException;
-import com.ureca.myureca.repository.coupon.CouponPolicyRepository;
+import com.ureca.myureca.repository.CouponPolicyRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

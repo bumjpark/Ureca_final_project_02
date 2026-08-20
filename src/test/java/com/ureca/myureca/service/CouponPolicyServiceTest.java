@@ -1,4 +1,4 @@
-package com.ureca.myureca.service.coupon;
+package com.ureca.myureca.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -8,10 +8,10 @@ import static org.mockito.Mockito.when;
 
 import com.ureca.myureca.domain.coupon.CouponPolicy;
 import com.ureca.myureca.domain.coupon.CouponType;
-import com.ureca.myureca.dto.coupon.CouponPolicyCreateRequest;
-import com.ureca.myureca.dto.coupon.CouponPolicyResponse;
+import com.ureca.myureca.dto.CouponPolicyCreateRequest;
+import com.ureca.myureca.dto.CouponPolicyResponse;
 import com.ureca.myureca.exception.InvalidCouponPolicyException;
-import com.ureca.myureca.repository.coupon.CouponPolicyRepository;
+import com.ureca.myureca.repository.CouponPolicyRepository;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

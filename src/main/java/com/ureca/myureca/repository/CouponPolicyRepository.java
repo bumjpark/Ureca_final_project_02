@@ -1,4 +1,4 @@
-package com.ureca.myureca.repository.coupon;
+package com.ureca.myureca.repository;
 
 import com.ureca.myureca.domain.coupon.CouponPolicy;
 import org.springframework.data.jpa.repository.JpaRepository;
