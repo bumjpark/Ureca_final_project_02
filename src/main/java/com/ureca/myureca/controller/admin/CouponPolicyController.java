@@ -5,6 +5,7 @@ import com.ureca.myureca.dto.coupon.CouponPolicyResponse;
 import com.ureca.myureca.service.coupon.CouponPolicyService;
 import jakarta.validation.Valid;
 import java.net.URI;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -13,13 +14,10 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/admin/coupon-policies")
+@RequiredArgsConstructor
 public class CouponPolicyController {
 
     private final CouponPolicyService couponPolicyService;
-
-    public CouponPolicyController(CouponPolicyService couponPolicyService) {
-        this.couponPolicyService = couponPolicyService;
-    }
 
     @PostMapping
     public ResponseEntity<CouponPolicyResponse> createCouponPolicy(

@@ -6,21 +6,19 @@ import com.ureca.myureca.dto.coupon.CouponPolicyCreateRequest;
 import com.ureca.myureca.dto.coupon.CouponPolicyResponse;
 import com.ureca.myureca.exception.InvalidCouponPolicyException;
 import com.ureca.myureca.repository.coupon.CouponPolicyRepository;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @Transactional
+@RequiredArgsConstructor
 public class CouponPolicyService {
 
     private static final int MIN_RATE_DISCOUNT_VALUE = 1;
     private static final int MAX_RATE_DISCOUNT_VALUE = 100;
 
     private final CouponPolicyRepository couponPolicyRepository;
-
-    public CouponPolicyService(CouponPolicyRepository couponPolicyRepository) {
-        this.couponPolicyRepository = couponPolicyRepository;
-    }
 
     public CouponPolicyResponse createCouponPolicy(CouponPolicyCreateRequest request) {
         validateBusinessRules(request);
