@@ -85,4 +85,78 @@ class CouponPolicyControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
     }
+
+    @Test
+    void title이_정확히_100자면_통과한다() throws Exception {
+        String title = "가".repeat(100);
+        LocalDateTime openAt = LocalDateTime.now().plusDays(1);
+        CouponPolicyCreateRequest request = new CouponPolicyCreateRequest(
+                title, CouponType.FIXED, 1000, 100, openAt, null
+        );
+        CouponPolicy saved = new CouponPolicy(
+                request.title(), request.couponType(), request.discountValue(),
+                request.totalQuantity(), request.openAt(), request.closeAt()
+        );
+        CouponPolicyResponse response = CouponPolicyResponse.from(saved);
+        when(couponPolicyService.createCouponPolicy(any(CouponPolicyCreateRequest.class)))
+                .thenReturn(response);
+
+        mockMvc.perform(post("/api/admin/coupon-policies")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    void title이_101자면_400을_반환한다() throws Exception {
+        String title = "가".repeat(101);
+        LocalDateTime openAt = LocalDateTime.now().plusDays(1);
+        CouponPolicyCreateRequest request = new CouponPolicyCreateRequest(
+                title, CouponType.FIXED, 1000, 100, openAt, null
+        );
+
+        mockMvc.perform(post("/api/admin/coupon-policies")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void totalQuantity가_0이면_400을_반환한다() throws Exception {
+        LocalDateTime openAt = LocalDateTime.now().plusDays(1);
+        CouponPolicyCreateRequest request = new CouponPolicyCreateRequest(
+                "재고 0 쿠폰", CouponType.FIXED, 1000, 0, openAt, null
+        );
+
+        mockMvc.perform(post("/api/admin/coupon-policies")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void discountValue가_0이면_400을_반환한다() throws Exception {
+        LocalDateTime openAt = LocalDateTime.now().plusDays(1);
+        CouponPolicyCreateRequest request = new CouponPolicyCreateRequest(
+                "할인값 0 쿠폰", CouponType.FIXED, 0, 100, openAt, null
+        );
+
+        mockMvc.perform(post("/api/admin/coupon-policies")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void openAt이_현재시각이면_미래가_아니라서_400을_반환한다() throws Exception {
+        LocalDateTime openAt = LocalDateTime.now();
+        CouponPolicyCreateRequest request = new CouponPolicyCreateRequest(
+                "지금 오픈 쿠폰", CouponType.FIXED, 1000, 100, openAt, null
+        );
+
+        mockMvc.perform(post("/api/admin/coupon-policies")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+    }
 }

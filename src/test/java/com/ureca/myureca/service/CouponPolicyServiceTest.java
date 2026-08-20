@@ -78,4 +78,97 @@ class CouponPolicyServiceTest {
                 .isInstanceOf(InvalidCouponPolicyException.class)
                 .hasMessageContaining("RATE");
     }
+
+    @Test
+    void closeAt이_openAt과_정확히_같으면_예외가_발생한다() {
+        LocalDateTime openAt = LocalDateTime.now().plusDays(1);
+        CouponPolicyCreateRequest request = new CouponPolicyCreateRequest(
+                "경계값 쿠폰", CouponType.FIXED, 1000, 100, openAt, openAt
+        );
+
+        assertThatThrownBy(() -> couponPolicyService.createCouponPolicy(request))
+                .isInstanceOf(InvalidCouponPolicyException.class)
+                .hasMessageContaining("closeAt");
+    }
+
+    @Test
+    void closeAt이_openAt보다_1초라도_이후면_성공한다() {
+        LocalDateTime openAt = LocalDateTime.now().plusDays(1);
+        LocalDateTime closeAt = openAt.plusSeconds(1);
+        CouponPolicyCreateRequest request = new CouponPolicyCreateRequest(
+                "경계값 쿠폰", CouponType.FIXED, 1000, 100, openAt, closeAt
+        );
+        CouponPolicy saved = new CouponPolicy(
+                request.title(), request.couponType(), request.discountValue(),
+                request.totalQuantity(), request.openAt(), request.closeAt()
+        );
+        when(couponPolicyRepository.save(any(CouponPolicy.class))).thenReturn(saved);
+
+        CouponPolicyResponse response = couponPolicyService.createCouponPolicy(request);
+
+        assertThat(response.closeAt()).isEqualTo(closeAt);
+    }
+
+    @Test
+    void RATE_할인율_최소값_1은_통과한다() {
+        LocalDateTime openAt = LocalDateTime.now().plusDays(1);
+        CouponPolicyCreateRequest request = new CouponPolicyCreateRequest(
+                "경계값 쿠폰", CouponType.RATE, 1, 100, openAt, null
+        );
+        CouponPolicy saved = new CouponPolicy(
+                request.title(), request.couponType(), request.discountValue(),
+                request.totalQuantity(), request.openAt(), request.closeAt()
+        );
+        when(couponPolicyRepository.save(any(CouponPolicy.class))).thenReturn(saved);
+
+        CouponPolicyResponse response = couponPolicyService.createCouponPolicy(request);
+
+        assertThat(response.discountValue()).isEqualTo(1);
+    }
+
+    @Test
+    void RATE_할인율_최대값_100은_통과한다() {
+        LocalDateTime openAt = LocalDateTime.now().plusDays(1);
+        CouponPolicyCreateRequest request = new CouponPolicyCreateRequest(
+                "경계값 쿠폰", CouponType.RATE, 100, 100, openAt, null
+        );
+        CouponPolicy saved = new CouponPolicy(
+                request.title(), request.couponType(), request.discountValue(),
+                request.totalQuantity(), request.openAt(), request.closeAt()
+        );
+        when(couponPolicyRepository.save(any(CouponPolicy.class))).thenReturn(saved);
+
+        CouponPolicyResponse response = couponPolicyService.createCouponPolicy(request);
+
+        assertThat(response.discountValue()).isEqualTo(100);
+    }
+
+    @Test
+    void RATE_할인율_101은_최대값_초과라_예외가_발생한다() {
+        LocalDateTime openAt = LocalDateTime.now().plusDays(1);
+        CouponPolicyCreateRequest request = new CouponPolicyCreateRequest(
+                "경계값 쿠폰", CouponType.RATE, 101, 100, openAt, null
+        );
+
+        assertThatThrownBy(() -> couponPolicyService.createCouponPolicy(request))
+                .isInstanceOf(InvalidCouponPolicyException.class)
+                .hasMessageContaining("RATE");
+    }
+
+    @Test
+    void FIXED_타입은_할인율_범위_제한을_받지_않는다() {
+        LocalDateTime openAt = LocalDateTime.now().plusDays(1);
+        CouponPolicyCreateRequest request = new CouponPolicyCreateRequest(
+                "고액 정액 쿠폰", CouponType.FIXED, 999_999, 100, openAt, null
+        );
+        CouponPolicy saved = new CouponPolicy(
+                request.title(), request.couponType(), request.discountValue(),
+                request.totalQuantity(), request.openAt(), request.closeAt()
+        );
+        when(couponPolicyRepository.save(any(CouponPolicy.class))).thenReturn(saved);
+
+        CouponPolicyResponse response = couponPolicyService.createCouponPolicy(request);
+
+        assertThat(response.discountValue()).isEqualTo(999_999);
+    }
 }
