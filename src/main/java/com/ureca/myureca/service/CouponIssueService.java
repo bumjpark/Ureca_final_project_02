@@ -14,10 +14,11 @@ public class CouponIssueService {
 
     private final RedisCouponIssueService redisCouponIssueService;
     private final KafkaCouponEventProducer kafkaCouponEventProducer;
+    private final ActiveTokenService activeTokenService;
 
     public CouponIssueResponse issueCoupon(Long policyId, Long userId, String activeToken) {
         // 1. 대기열 토큰 검증
-        if (!redisCouponIssueService.isValidActiveToken(activeToken)) {
+        if (!activeTokenService.consume(activeToken)) {
             throw new InvalidTokenException("유효하지 않거나 만료된 대기열 토큰입니다.");
         }
 
