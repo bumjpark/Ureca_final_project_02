@@ -1,4 +1,4 @@
-package com.ureca.myureca.dto;
+package com.ureca.myureca.dto.request;
 
 import com.ureca.myureca.domain.coupon.CouponType;
 import jakarta.validation.constraints.Future;

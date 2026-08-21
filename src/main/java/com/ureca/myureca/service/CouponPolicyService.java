@@ -2,9 +2,9 @@ package com.ureca.myureca.service;
 
 import com.ureca.myureca.domain.coupon.CouponPolicy;
 import com.ureca.myureca.domain.coupon.CouponType;
-import com.ureca.myureca.dto.CouponPolicyCreateRequest;
-import com.ureca.myureca.dto.CouponPolicyResponse;
-import com.ureca.myureca.dto.PageResponse;
+import com.ureca.myureca.dto.request.CouponPolicyCreateRequest;
+import com.ureca.myureca.dto.response.CouponPolicyResponse;
+import com.ureca.myureca.dto.response.PageResponse;
 import com.ureca.myureca.exception.CouponPolicyNotFoundException;
 import com.ureca.myureca.exception.InvalidCouponPolicyException;
 import com.ureca.myureca.repository.CouponPolicyRepository;

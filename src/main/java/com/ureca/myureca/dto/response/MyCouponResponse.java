@@ -1,4 +1,4 @@
-package com.ureca.myureca.dto;
+package com.ureca.myureca.dto.response;
 
 import com.ureca.myureca.domain.coupon.CouponIssue;
 import com.ureca.myureca.domain.coupon.CouponPolicy;

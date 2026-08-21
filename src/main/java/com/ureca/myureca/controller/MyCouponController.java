@@ -1,7 +1,7 @@
 package com.ureca.myureca.controller;
 
 import com.ureca.myureca.domain.coupon.IssueStatus;
-import com.ureca.myureca.dto.MyCouponPageResponse;
+import com.ureca.myureca.dto.response.MyCouponPageResponse;
 import com.ureca.myureca.service.MyCouponQueryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;

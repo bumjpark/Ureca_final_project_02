@@ -1,4 +1,4 @@
-package com.ureca.myureca.dto;
+package com.ureca.myureca.dto.response;
 
 import java.util.List;
 import org.springframework.data.domain.Page;
