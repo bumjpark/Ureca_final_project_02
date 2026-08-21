@@ -11,8 +11,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.ureca.myureca.domain.coupon.CouponPolicy;
 import com.ureca.myureca.domain.coupon.CouponType;
-import com.ureca.myureca.dto.CouponPolicyCreateRequest;
-import com.ureca.myureca.dto.CouponPolicyResponse;
+import com.ureca.myureca.dto.request.CouponPolicyCreateRequest;
+import com.ureca.myureca.dto.response.CouponPolicyResponse;
 import com.ureca.myureca.service.CouponPolicyService;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.Test;
