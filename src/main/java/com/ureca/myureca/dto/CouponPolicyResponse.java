@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 
 /**
  * 쿠폰 정책 목록/상세 조회 공통 응답 DTO.
+ * POST /api/admin/coupon-policies 응답 바디. 별도 래퍼 없이 리소스를 그대로 반환한다.
  */
 public record CouponPolicyResponse(
         Long id,
