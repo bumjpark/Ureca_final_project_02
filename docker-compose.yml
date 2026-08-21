@@ -44,7 +44,7 @@ services:
     container_name: coupon-kafka
     restart: unless-stopped
     ports:
-      - "${KAFKA_PORT:-9095}:9095"
+      - "${KAFKA_PORT:-9092}:9092"
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
