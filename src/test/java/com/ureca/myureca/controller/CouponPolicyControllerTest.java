@@ -135,7 +135,7 @@ class CouponPolicyControllerTest {
     }
 
     @Test
-    void discountValue가_0이면_400을_반환한다() throws Exception {
+    void FIXED가_0이면_400을_반환한다() throws Exception {
         LocalDateTime openAt = LocalDateTime.now().plusDays(1);
         CouponPolicyCreateRequest request = new CouponPolicyCreateRequest(
                 "할인값 0 쿠폰", CouponType.FIXED, 0, 100, openAt, null
