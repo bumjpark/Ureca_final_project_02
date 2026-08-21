@@ -1,8 +1,24 @@
 package com.ureca.myureca.exception;
 
+import java.time.LocalDateTime;
+import java.util.List;
+
 /**
- * 에러 응답. message 에는 개인정보를 절대 담지 않는다 (FR-2 / NFR-5).
- * userId 같은 내부 식별자는 담아도 되지만 이름·이메일·연락처는 안 된다.
+ * 공통 에러 응답 바디. 성공 응답은 래퍼 없이 리소스를 그대로 반환하지만,
+ * 에러 응답은 클라이언트가 파싱할 수 있도록 일관된 형태를 유지한다.
  */
-public record ErrorResponse(String code, String message) {
+public record ErrorResponse(
+        int status,
+        String message,
+        List<String> errors,
+        LocalDateTime timestamp
+) {
+
+    public static ErrorResponse of(int status, String message) {
+        return new ErrorResponse(status, message, null, LocalDateTime.now());
+    }
+
+    public static ErrorResponse of(int status, String message, List<String> errors) {
+        return new ErrorResponse(status, message, errors, LocalDateTime.now());
+    }
 }
