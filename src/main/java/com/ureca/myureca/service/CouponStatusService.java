@@ -3,7 +3,7 @@ package com.ureca.myureca.service;
 import com.ureca.myureca.domain.coupon.CouponPolicy;
 import com.ureca.myureca.dto.response.CouponStatusResponse;
 import com.ureca.myureca.exception.CouponPolicyNotFoundException;
-import com.ureca.myureca.repository.coupon.CouponPolicyRepository;
+import com.ureca.myureca.repository.CouponPolicyRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -55,7 +55,6 @@ public class CouponStatusService {
                 totalQuantity,
                 issuedQuantity,
                 remainingQuantity,
-                issueRate
-        );
+                issueRate);
     }
 }

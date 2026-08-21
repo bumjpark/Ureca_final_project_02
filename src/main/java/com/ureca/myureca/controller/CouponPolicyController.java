@@ -1,7 +1,7 @@
 package com.ureca.myureca.controller;
 
-import com.ureca.myureca.dto.CouponPolicyCreateRequest;
-import com.ureca.myureca.dto.CouponPolicyResponse;
+import com.ureca.myureca.dto.request.CouponPolicyCreateRequest;
+import com.ureca.myureca.dto.response.CouponPolicyResponse;
 import com.ureca.myureca.service.CouponPolicyService;
 import jakarta.validation.Valid;
 import java.net.URI;
@@ -21,8 +21,7 @@ public class CouponPolicyController {
 
     @PostMapping
     public ResponseEntity<CouponPolicyResponse> createCouponPolicy(
-            @Valid @RequestBody CouponPolicyCreateRequest request
-    ) {
+            @Valid @RequestBody CouponPolicyCreateRequest request) {
         CouponPolicyResponse response = couponPolicyService.createCouponPolicy(request);
         URI location = URI.create("/api/admin/coupon-policies/" + response.id());
         return ResponseEntity.created(location).body(response);

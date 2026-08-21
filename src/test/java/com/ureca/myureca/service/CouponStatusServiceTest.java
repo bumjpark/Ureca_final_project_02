@@ -8,7 +8,7 @@ import com.ureca.myureca.domain.coupon.CouponPolicy;
 import com.ureca.myureca.domain.coupon.CouponType;
 import com.ureca.myureca.dto.response.CouponStatusResponse;
 import com.ureca.myureca.exception.CouponPolicyNotFoundException;
-import com.ureca.myureca.repository.coupon.CouponPolicyRepository;
+import com.ureca.myureca.repository.CouponPolicyRepository;
 import java.lang.reflect.Field;
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -42,8 +42,7 @@ class CouponStatusServiceTest {
     private CouponPolicy policyWithTotalQuantity(int totalQuantity) throws Exception {
         CouponPolicy policy = new CouponPolicy(
                 "여름 시즌 정률 할인 쿠폰", CouponType.RATE, 10, totalQuantity,
-                LocalDateTime.now().minusMinutes(1), LocalDateTime.now().plusHours(1)
-        );
+                LocalDateTime.now().minusMinutes(1), LocalDateTime.now().plusHours(1));
         Field idField = CouponPolicy.class.getDeclaredField("id");
         idField.setAccessible(true);
         idField.set(policy, POLICY_ID);

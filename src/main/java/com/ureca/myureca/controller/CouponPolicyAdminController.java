@@ -1,7 +1,7 @@
 package com.ureca.myureca.controller;
 
-import com.ureca.myureca.dto.CouponPolicyResponse;
-import com.ureca.myureca.dto.PageResponse;
+import com.ureca.myureca.dto.response.CouponPolicyResponse;
+import com.ureca.myureca.dto.response.PageResponse;
 import com.ureca.myureca.service.CouponPolicyService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
@@ -20,8 +20,7 @@ public class CouponPolicyAdminController {
 
     @GetMapping
     public PageResponse<CouponPolicyResponse> getCouponPolicies(
-            @PageableDefault(size = 10) Pageable pageable
-    ) {
+            @PageableDefault(size = 10) Pageable pageable) {
         return couponPolicyService.getCouponPolicies(pageable);
     }
 

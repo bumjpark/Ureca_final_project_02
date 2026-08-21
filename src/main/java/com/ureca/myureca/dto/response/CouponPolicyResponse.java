@@ -1,4 +1,4 @@
-package com.ureca.myureca.dto;
+package com.ureca.myureca.dto.response;
 
 import com.ureca.myureca.domain.coupon.CouponPolicy;
 import com.ureca.myureca.domain.coupon.CouponType;
@@ -18,8 +18,7 @@ public record CouponPolicyResponse(
         LocalDateTime openAt,
         LocalDateTime closeAt,
         LocalDateTime createdAt,
-        LocalDateTime updatedAt
-) {
+        LocalDateTime updatedAt) {
 
     public static CouponPolicyResponse from(CouponPolicy couponPolicy) {
         return new CouponPolicyResponse(
@@ -32,7 +31,6 @@ public record CouponPolicyResponse(
                 couponPolicy.getOpenAt(),
                 couponPolicy.getCloseAt(),
                 couponPolicy.getCreatedAt(),
-                couponPolicy.getUpdatedAt()
-        );
+                couponPolicy.getUpdatedAt());
     }
 }
