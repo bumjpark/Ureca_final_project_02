@@ -63,7 +63,7 @@ public class VerificationReport {
             name = "status",
             nullable = false,
             length = 20,
-            check = @CheckConstraint(name = "chk_verification_status", constraint = "status in ('SUCCESS','MISMATCH_FOUND')")
+            check = @CheckConstraint(name = "chk_verification_status", constraint = "status in ('PENDING','SUCCESS','MISMATCH_FOUND')")
     )
     private VerificationStatus status;
 
@@ -88,6 +88,25 @@ public class VerificationReport {
         this.totalReserved = totalReserved;
         this.mismatchCount = mismatchCount;
         this.status = status;
+    }
+
+    /** 비동기 실행 접수 직후, 백그라운드 처리 전에 즉시 저장할 임시 리포트. */
+    public static VerificationReport pending(CouponPolicy couponPolicy, LocalDateTime runAt) {
+        return new VerificationReport(couponPolicy, runAt, 0, 0, 0, VerificationStatus.PENDING);
+    }
+
+    /** 백그라운드 처리가 끝나면 PENDING 리포트를 최종 결과로 확정한다. */
+    public void complete(int totalIssued, int totalReserved, int mismatchCount, VerificationStatus finalStatus) {
+        if (this.status != VerificationStatus.PENDING) {
+            throw new IllegalStateException("PENDING 상태에서만 완료 처리할 수 있습니다. 현재 상태: " + this.status);
+        }
+        if (finalStatus == VerificationStatus.PENDING) {
+            throw new IllegalArgumentException("완료 상태는 PENDING일 수 없습니다.");
+        }
+        this.totalIssued = totalIssued;
+        this.totalReserved = totalReserved;
+        this.mismatchCount = mismatchCount;
+        this.status = finalStatus;
     }
 
     /** 불일치 상세 내역 CSV가 생성된 이후 파일 경로를 리포트에 연결한다. */

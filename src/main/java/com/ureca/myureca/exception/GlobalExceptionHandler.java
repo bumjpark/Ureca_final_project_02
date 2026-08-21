@@ -61,6 +61,22 @@ public class GlobalExceptionHandler {
                 .body(ErrorResponse.of(HttpStatus.BAD_REQUEST.value(), e.getMessage()));
     }
 
+    @ExceptionHandler(VerificationNotAllowedException.class)
+    public ResponseEntity<ErrorResponse> handleVerificationNotAllowed(VerificationNotAllowedException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ErrorResponse.of(HttpStatus.CONFLICT.value(), e.getMessage()));
+    }
+
+    @ExceptionHandler(VerificationDispatchException.class)
+    public ResponseEntity<ErrorResponse> handleVerificationDispatch(VerificationDispatchException e) {
+        log.error("검증 배치 접수 중 일부 실패. 이미 접수된 정책={}", e.getDispatchedPolicyIds(), e);
+        List<String> errors = e.getDispatchedPolicyIds().stream()
+                .map(id -> "이미 접수됨(재실행 불필요): policyId=" + id)
+                .toList();
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR.value(), e.getMessage(), errors));
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleValidationException(MethodArgumentNotValidException e) {
         List<String> errors = e.getBindingResult().getFieldErrors().stream()

@@ -37,3 +37,8 @@ out/
 .vscode/
 
 .env
+
+### App runtime artifacts ###
+# 정합성 검증 배치가 로컬에 생성하는 불일치 CSV 리포트 (app.verification.report-dir 기본값)
+/reports/
+*.log
