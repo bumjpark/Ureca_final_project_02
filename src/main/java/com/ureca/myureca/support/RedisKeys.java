@@ -21,6 +21,16 @@ public final class RedisKeys {
         return couponPolicyPrefix(policyId) + ":issued";
     }
 
+    /** 대기열 ZSET: score = 진입 순번(seq), member = userId */
+    public static String couponQueue(Long policyId) {
+        return couponPolicyPrefix(policyId) + ":queue";
+    }
+
+    /** 대기열 단조 증가 시퀀스 카운터 (동일 ms 동시 진입 시 순번 왜곡 방지) */
+    public static String couponQueueSeq(Long policyId) {
+        return couponPolicyPrefix(policyId) + ":queue:seq";
+    }
+
     private static String couponPolicyPrefix(Long policyId) {
         return "coupon:policy:" + policyId;
     }
