@@ -41,6 +41,16 @@ public final class RedisKeys {
         return "lock:admission:" + policyId;
     }
 
+    /** 특정 정책의 동적 대기열 처리 Limit 키 */
+    public static String queueLimit(Long policyId) {
+        return "queue:limit:" + policyId;
+    }
+
+    /** 전체 정책에 적용되는 글로벌 기본 대기열 처리 Limit 키 */
+    public static String queueDefaultLimit() {
+        return "queue:limit:default";
+    }
+
     private static String couponPolicyPrefix(Long policyId) {
         return "coupon:policy:" + policyId;
     }

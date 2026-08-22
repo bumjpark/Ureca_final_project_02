@@ -32,6 +32,7 @@ class QueueAdmissionSchedulerTest {
 
     @Mock private CouponPolicyRepository couponPolicyRepository;
     @Mock private QueueAdmissionService queueAdmissionService;
+    @Mock private QueueLimitAdminService queueLimitAdminService;
     @Mock private StringRedisTemplate redisTemplate;
     @Mock private ValueOperations<String, String> valueOperations;
 
@@ -43,8 +44,6 @@ class QueueAdmissionSchedulerTest {
 
     @BeforeEach
     void setUp() {
-        ReflectionTestUtils.setField(scheduler, "admissionRate", 300);
-
         activePolicy = new CouponPolicy(
                 "테스트 쿠폰", CouponType.FIXED, 1000, 10000,
                 LocalDateTime.now().minusHours(1), // 이미 오픈됨
@@ -54,16 +53,17 @@ class QueueAdmissionSchedulerTest {
     }
 
     @Test
-    void 오픈_중인_정책에_대해_분산_락_획득_성공_시_admitUsers를_호출한다() {
+    void 오픈_중인_정책에_대해_분산_락_획득_성공_시_동적_Limit으로_admitUsers를_호출한다() {
         when(couponPolicyRepository.findByDeletedAtIsNull(any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(activePolicy)));
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.setIfAbsent(eq(RedisKeys.lockAdmission(POLICY_ID)), eq("locked"), eq(1L), eq(TimeUnit.SECONDS)))
                 .thenReturn(true);
+        when(queueLimitAdminService.getEffectiveLimit(POLICY_ID)).thenReturn(500); // 동적 Limit 500
 
         scheduler.processQueueAdmission();
 
-        verify(queueAdmissionService).admitUsers(POLICY_ID, 300);
+        verify(queueAdmissionService).admitUsers(POLICY_ID, 500);
     }
 
     @Test
