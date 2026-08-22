@@ -42,13 +42,22 @@ public class QueueAdmissionService {
 
         // 1. 재고 확인 (품절 시 조기 종료)
         String stockStr = redisTemplate.opsForValue().get(stockKey);
-        if (stockStr == null || Integer.parseInt(stockStr) <= 0) {
-            log.debug("재고 소진 또는 미초기화로 대기열 입장 처리 스킵. policyId={}", policyId);
+        if (stockStr == null) {
+            log.debug("재고 키 미초기화로 대기열 입장 처리 스킵. policyId={}", policyId);
             return 0;
         }
 
-        // 2. 대기열 ZSET에서 선두 N명 원자적 추출 (ZPOPMIN)
-        Set<TypedTuple<String>> poppedUsers = redisTemplate.opsForZSet().popMin(queueKey, batchSize);
+        int currentStock = Integer.parseInt(stockStr);
+        if (currentStock <= 0) {
+            log.debug("재고 소진으로 대기열 입장 처리 스킵. policyId={}", policyId);
+            return 0;
+        }
+
+        // 2. 잔여 재고와 배치 정원 중 작은 값만큼만 정밀 슬라이싱 (과다 입장 Over-Admission 방어)
+        int actualBatchSize = Math.min(batchSize, currentStock);
+
+        // 3. 대기열 ZSET에서 선두 N명 원자적 추출 (ZPOPMIN)
+        Set<TypedTuple<String>> poppedUsers = redisTemplate.opsForZSet().popMin(queueKey, actualBatchSize);
         if (poppedUsers == null || poppedUsers.isEmpty()) {
             return 0;
         }

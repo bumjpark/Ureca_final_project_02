@@ -46,7 +46,7 @@ class QueueAdmissionServiceTest {
     void 대기열_유저_popMin_성공_시_Pipelined로_토큰을_일괄_발급한다() {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
-        when(valueOperations.get(RedisKeys.couponStock(POLICY_ID))).thenReturn("100"); // 재고 100개
+        when(valueOperations.get(RedisKeys.couponStock(POLICY_ID))).thenReturn("500");
 
         Set<TypedTuple<String>> popped = new HashSet<>();
         popped.add(new DefaultTypedTuple<>("42", 1.0));
@@ -56,6 +56,26 @@ class QueueAdmissionServiceTest {
         int admitted = admissionService.admitUsers(POLICY_ID, 300);
 
         assertThat(admitted).isEqualTo(2);
+        verify(redisTemplate).executePipelined(any(SessionCallback.class));
+    }
+
+    @Test
+    void 잔여_재고가_배치_크기보다_작으면_잔여_재고만큼만_정밀_popMin_한다() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
+        when(valueOperations.get(RedisKeys.couponStock(POLICY_ID))).thenReturn("10"); // 재고 10개
+
+        Set<TypedTuple<String>> popped = new HashSet<>();
+        for (int i = 1; i <= 10; i++) {
+            popped.add(new DefaultTypedTuple<>(String.valueOf(i), (double) i));
+        }
+        // batchSize=300이지만 재고가 10개이므로 popMin에 10 전달
+        when(zSetOperations.popMin(RedisKeys.couponQueue(POLICY_ID), 10)).thenReturn(popped);
+
+        int admitted = admissionService.admitUsers(POLICY_ID, 300);
+
+        assertThat(admitted).isEqualTo(10);
+        verify(zSetOperations).popMin(RedisKeys.couponQueue(POLICY_ID), 10);
         verify(redisTemplate).executePipelined(any(SessionCallback.class));
     }
 
@@ -85,7 +105,7 @@ class QueueAdmissionServiceTest {
     void 대기열이_비어있으면_0건_반환한다() {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
-        when(valueOperations.get(RedisKeys.couponStock(POLICY_ID))).thenReturn("100");
+        when(valueOperations.get(RedisKeys.couponStock(POLICY_ID))).thenReturn("500");
         when(zSetOperations.popMin(RedisKeys.couponQueue(POLICY_ID), 300)).thenReturn(Collections.emptySet());
 
         int admitted = admissionService.admitUsers(POLICY_ID, 300);
