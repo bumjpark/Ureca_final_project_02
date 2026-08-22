@@ -36,4 +36,15 @@ public class RedisConfig {
         script.setResultType(Long.class);
         return script;
     }
+
+    /** get_queue_status.lua: {status, token, rank} 배열 반환 */
+    @SuppressWarnings("unchecked")
+    @Bean
+    public RedisScript<List<String>> getQueueStatusScript() {
+        DefaultRedisScript script = new DefaultRedisScript();
+        script.setLocation(new ClassPathResource("scripts/get_queue_status.lua"));
+        script.setResultType(List.class);
+        return script;
+    }
 }
+

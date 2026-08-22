@@ -36,4 +36,20 @@ public class QueueController {
     public QueueJoinResponse joinQueue(@Valid @RequestBody QueueJoinRequest request) {
         return queueService.joinQueue(request);
     }
+
+    /**
+     * 대기열 상태 조회 (폴링).
+     *
+     * <p>대기 중인 클라이언트가 주기적으로 본인의 대기 순번 및 입장 가능 여부를 확인한다.
+     * {@code retryAfterSeconds} 값을 활용하여 폴링 주기를 동적으로 조절한다.
+     *
+     * @return 200 OK + {@link QueueStatusResponse}
+     */
+    @org.springframework.web.bind.annotation.GetMapping("/status")
+    public com.ureca.myureca.dto.response.QueueStatusResponse getQueueStatus(
+            @jakarta.validation.constraints.NotNull @jakarta.validation.constraints.Positive @org.springframework.web.bind.annotation.RequestParam("policyId") Long policyId,
+            @jakarta.validation.constraints.NotNull @jakarta.validation.constraints.Positive @org.springframework.web.bind.annotation.RequestParam("userId") Long userId
+    ) {
+        return queueService.getQueueStatus(policyId, userId);
+    }
 }

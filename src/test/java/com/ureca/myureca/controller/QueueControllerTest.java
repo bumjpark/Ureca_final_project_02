@@ -2,7 +2,9 @@ package com.ureca.myureca.controller;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -10,11 +12,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.ureca.myureca.domain.queue.QueueStatus;
 import com.ureca.myureca.dto.request.QueueJoinRequest;
 import com.ureca.myureca.dto.response.QueueJoinResponse;
+import com.ureca.myureca.dto.response.QueueStatusResponse;
 import com.ureca.myureca.exception.CouponDuplicatedException;
 import com.ureca.myureca.exception.CouponNotOpenedException;
 import com.ureca.myureca.exception.CouponPolicyNotFoundException;
 import com.ureca.myureca.exception.CouponSoldOutException;
 import com.ureca.myureca.exception.QueueFullException;
+import com.ureca.myureca.exception.TooManyRequestsException;
 import com.ureca.myureca.service.QueueService;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.Test;
@@ -38,6 +42,8 @@ class QueueControllerTest {
 
     @MockitoBean
     private QueueService queueService;
+
+    // ─── POST /api/queue/join ────────────────────────────────────────────────
 
     @Test
     void 정상_대기열_등록시_200과_WAITING_상태를_반환한다() throws Exception {
@@ -144,7 +150,7 @@ class QueueControllerTest {
     void 연타_호출_시_429_TOO_MANY_REQUESTS를_반환한다() throws Exception {
         QueueJoinRequest request = new QueueJoinRequest(1L, 42L);
         when(queueService.joinQueue(any(QueueJoinRequest.class)))
-                .thenThrow(new com.ureca.myureca.exception.TooManyRequestsException());
+                .thenThrow(new TooManyRequestsException());
 
         mockMvc.perform(post("/api/queue/join")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -163,5 +169,55 @@ class QueueControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isNotFound());
+    }
+
+    // ─── GET /api/queue/status ───────────────────────────────────────────────
+
+    @Test
+    void 대기열_상태조회_WAITING_정상_반환() throws Exception {
+        QueueStatusResponse response = QueueStatusResponse.waiting(10L, 10L, 1.0);
+        when(queueService.getQueueStatus(eq(1L), eq(42L))).thenReturn(response);
+
+        mockMvc.perform(get("/api/queue/status")
+                        .param("policyId", "1")
+                        .param("userId", "42"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("WAITING"))
+                .andExpect(jsonPath("$.rank").value(10))
+                .andExpect(jsonPath("$.retryAfterSeconds").value(1.0));
+    }
+
+    @Test
+    void 대기열_상태조회_ADMITTED_정상_반환() throws Exception {
+        QueueStatusResponse response = QueueStatusResponse.admitted("mytoken123");
+        when(queueService.getQueueStatus(eq(1L), eq(42L))).thenReturn(response);
+
+        mockMvc.perform(get("/api/queue/status")
+                        .param("policyId", "1")
+                        .param("userId", "42"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ADMITTED"))
+                .andExpect(jsonPath("$.activeToken").value("mytoken123"))
+                .andExpect(jsonPath("$.rank").value(0));
+    }
+
+    @Test
+    void 대기열_상태조회_SOLD_OUT_반환() throws Exception {
+        QueueStatusResponse response = QueueStatusResponse.soldOut();
+        when(queueService.getQueueStatus(eq(1L), eq(42L))).thenReturn(response);
+
+        mockMvc.perform(get("/api/queue/status")
+                        .param("policyId", "1")
+                        .param("userId", "42"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SOLD_OUT"))
+                .andExpect(jsonPath("$.rank").value(-1));
+    }
+
+    @Test
+    void 대기열_상태조회_파라미터_누락시_400_반환() throws Exception {
+        mockMvc.perform(get("/api/queue/status")
+                        .param("policyId", "1")) // userId 누락
+                .andExpect(status().isBadRequest());
     }
 }

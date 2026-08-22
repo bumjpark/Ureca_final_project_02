@@ -3,8 +3,10 @@ package com.ureca.myureca.service;
 import com.ureca.myureca.domain.queue.QueueStatus;
 import com.ureca.myureca.dto.request.QueueJoinRequest;
 import com.ureca.myureca.dto.response.QueueJoinResponse;
+import com.ureca.myureca.dto.response.QueueStatusResponse;
 import com.ureca.myureca.exception.CouponDuplicatedException;
 import com.ureca.myureca.exception.CouponNotOpenedException;
+import com.ureca.myureca.exception.CouponPolicyNotFoundException;
 import com.ureca.myureca.exception.CouponSoldOutException;
 import com.ureca.myureca.exception.QueueFullException;
 import com.ureca.myureca.support.RedisKeys;
@@ -56,18 +58,10 @@ public class QueueService {
     private final QueueRateLimiter queueRateLimiter;
     private final StringRedisTemplate redisTemplate;
     private final RedisScript<List<Long>> joinQueueScript;
+    private final RedisScript<List<String>> getQueueStatusScript;
 
     /**
      * 대기열 등록 메인 로직.
-     *
-     * <ol>
-     *   <li>Rate Limiter 검증 (유저별 1초 1회 제한으로 매크로/연타 인앱 차단 - 429)</li>
-     *   <li>In-Memory 캐시 기반 정책 유효성 검증 (DB Connection Pool 고갈 방어)</li>
-     *   <li>Redis Lua 원자적 판별 (중복, 활성토큰보유, 재고, 정원, 대기열 공백 여부)</li>
-     *   <li>상태코드 201(대기자 없음) -> 즉시 activeToken 발급 (ADMITTED)</li>
-     *   <li>상태코드 200(대기열 등록됨) -> WAITING 및 순번 반환</li>
-     *   <li>Redis 일시 장애 시 503 Service Unavailable 로 Graceful 격리</li>
-     * </ol>
      */
     public QueueJoinResponse joinQueue(QueueJoinRequest request) {
         Long policyId = request.policyId();
@@ -79,7 +73,7 @@ public class QueueService {
         // 2. 정책 유효성 검증 (In-Memory 캐시 조회로 DB 부하 0)
         validatePolicy(policyId);
 
-        // 3. Redis Lua 원자적 실행 (Redis 장애 격리 서킷 브레이커)
+        // 3. Redis Lua 원자적 실행
         List<String> keys = List.of(
                 RedisKeys.couponIssued(policyId),
                 RedisKeys.couponReserved(policyId),
@@ -99,7 +93,7 @@ public class QueueService {
             );
         } catch (Exception e) {
             log.error("Redis 대기열 진입 실패 (일시 장애/지연). policyId={}, userId={}", policyId, userId, e);
-            throw new QueueFullException(policyId); // 503 Service Unavailable 로 Graceful 처리
+            throw new QueueFullException(policyId);
         }
 
         if (result == null || result.size() < 3) {
@@ -133,19 +127,85 @@ public class QueueService {
     }
 
     /**
-     * 즉시 입장 케이스: activeToken 생성 및 Redis 저장 (소유자 userId 매핑 및 역방향 키 등록).
+     * 대기열 상태 조회 메인 로직 (폴링 API).
      *
-     * <p>activeToken Redis 저장 장애 시 안전하게 WAITING(rank=0)으로 fallback하여
-     * 클라이언트의 재조회를 유도한다.
+     * <ol>
+     *   <li>In-Memory 캐시 기반 정책 유효성 검증</li>
+     *   <li>Redis Lua 원자적 상태 확인 (ADMITTED, WAITING, SOLD_OUT, ISSUED, NOT_FOUND)</li>
+     *   <li>순번에 따른 동적 백오프(retryAfterSeconds) 계산 및 반환</li>
+     * </ol>
+     */
+    public QueueStatusResponse getQueueStatus(Long policyId, Long userId) {
+        // 1. 정책 유효성 검증 (In-Memory 캐시 조회)
+        validatePolicy(policyId);
+
+        // 2. Redis Lua 원자적 상태 조회
+        List<String> keys = List.of(
+                RedisKeys.activeUser(policyId, userId),
+                RedisKeys.couponIssued(policyId),
+                RedisKeys.couponStock(policyId),
+                RedisKeys.couponQueue(policyId)
+        );
+
+        List<String> result;
+        try {
+            result = redisTemplate.execute(
+                    getQueueStatusScript,
+                    keys,
+                    String.valueOf(userId)
+            );
+        } catch (Exception e) {
+            log.error("Redis 대기열 상태 조회 실패. policyId={}, userId={}", policyId, userId, e);
+            throw new QueueFullException(policyId);
+        }
+
+        if (result == null || result.size() < 3) {
+            throw new IllegalStateException("대기열 상태 조회 중 Redis 스크립트 응답이 비어있습니다.");
+        }
+
+        String statusStr = result.get(0);
+        String token = result.get(1);
+        long rank = Long.parseLong(result.get(2));
+
+        return switch (statusStr) {
+            case "ADMITTED" -> QueueStatusResponse.admitted(token);
+            case "WAITING" -> {
+                long estimatedWait = Math.max(1L, rank * ESTIMATED_SECONDS_PER_PERSON);
+                double retryAfter = calculateRetryAfter(rank);
+                yield QueueStatusResponse.waiting(rank, estimatedWait, retryAfter);
+            }
+            case "SOLD_OUT" -> QueueStatusResponse.soldOut();
+            case "ISSUED" -> throw new CouponDuplicatedException("이미 발급 완료된 쿠폰입니다.");
+            default -> throw new CouponPolicyNotFoundException(policyId);
+        };
+    }
+
+    /**
+     * Polling Storm 완화를 위한 동적 백오프 계산.
+     * 앞 대기자가 많을수록 재요청 주기를 길게 제안한다.
+     */
+    private double calculateRetryAfter(long rank) {
+        if (rank > 100) {
+            return 3.0;
+        }
+        if (rank > 50) {
+            return 2.0;
+        }
+        if (rank > 10) {
+            return 1.0;
+        }
+        return 0.5;
+    }
+
+    /**
+     * 즉시 입장 케이스: activeToken 생성 및 Redis 저장 (소유자 userId 매핑 및 역방향 키 등록).
      */
     private QueueJoinResponse tryAdmit(Long policyId, Long userId) {
         String activeToken = UUID.randomUUID().toString().replace("-", "");
         String tokenKey = RedisKeys.activeToken(activeToken);
         String userKey = RedisKeys.activeUser(policyId, userId);
         try {
-            // 1) active_token:{token} -> userId (토큰 소비 시 검증)
             redisTemplate.opsForValue().set(tokenKey, String.valueOf(userId), tokenTtlSeconds, TimeUnit.SECONDS);
-            // 2) active_user:{policyId}:{userId} -> token (중복 토큰 발급 방어)
             redisTemplate.opsForValue().set(userKey, activeToken, tokenTtlSeconds, TimeUnit.SECONDS);
 
             log.debug("대기열 즉시 입장: policyId={}, userId={}, token={}", policyId, userId, activeToken);

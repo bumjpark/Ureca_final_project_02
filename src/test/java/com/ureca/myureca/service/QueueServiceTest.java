@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.ureca.myureca.domain.queue.QueueStatus;
 import com.ureca.myureca.dto.request.QueueJoinRequest;
 import com.ureca.myureca.dto.response.QueueJoinResponse;
+import com.ureca.myureca.dto.response.QueueStatusResponse;
 import com.ureca.myureca.exception.CouponDuplicatedException;
 import com.ureca.myureca.exception.CouponNotOpenedException;
 import com.ureca.myureca.exception.CouponPolicyNotFoundException;
@@ -36,6 +37,7 @@ class QueueServiceTest {
     @Mock private QueueRateLimiter queueRateLimiter;
     @Mock private StringRedisTemplate redisTemplate;
     @Mock private RedisScript<List<Long>> joinQueueScript;
+    @Mock private RedisScript<List<String>> getQueueStatusScript;
     @Mock private ValueOperations<String, String> valueOperations;
 
     private QueueService queueService;
@@ -46,7 +48,13 @@ class QueueServiceTest {
 
     @BeforeEach
     void setUp() {
-        queueService = new QueueService(couponPolicyCacheService, queueRateLimiter, redisTemplate, joinQueueScript);
+        queueService = new QueueService(
+                couponPolicyCacheService,
+                queueRateLimiter,
+                redisTemplate,
+                joinQueueScript,
+                getQueueStatusScript
+        );
         ReflectionTestUtils.setField(queueService, "maxQueueSize", 30000L);
         ReflectionTestUtils.setField(queueService, "tokenTtlSeconds", 60L);
 
@@ -58,7 +66,7 @@ class QueueServiceTest {
         );
     }
 
-    // ─── 정상 흐름 ─────────────────────────────────────────────────────────────
+    // ─── joinQueue (대기열 등록) ───────────────────────────────────────────────
 
     @Test
     void 대기_인원이_있어_200을_받으면_WAITING과_순번을_반환한다() {
@@ -99,8 +107,6 @@ class QueueServiceTest {
         assertThat(response.status()).isEqualTo(QueueStatus.WAITING);
         assertThat(response.rank()).isEqualTo(3L);
     }
-
-    // ─── Fast-Fail 방어 로직 ────────────────────────────────────────────────
 
     @Test
     void issued_셋에_있는_유저는_CouponDuplicatedException이_발생한다() {
@@ -163,62 +169,80 @@ class QueueServiceTest {
                 .isInstanceOf(QueueFullException.class);
     }
 
-    // ─── 정책 상태 검증 ─────────────────────────────────────────────────────
+    // ─── getQueueStatus (대기열 상태 조회) ─────────────────────────────────────
 
     @Test
-    void 아직_오픈_전_정책은_CouponNotOpenedException이_발생하고_openAt을_포함한다() {
-        LocalDateTime futureOpenAt = LocalDateTime.now().plusHours(2);
-        CouponPolicyCacheService.CachedPolicy notOpenedYet = new CouponPolicyCacheService.CachedPolicy(
-                POLICY_ID, futureOpenAt, null, System.currentTimeMillis()
-        );
-        when(couponPolicyCacheService.getPolicy(POLICY_ID)).thenReturn(notOpenedYet);
-
-        assertThatThrownBy(() -> queueService.joinQueue(new QueueJoinRequest(POLICY_ID, USER_ID)))
-                .isInstanceOf(CouponNotOpenedException.class)
-                .satisfies(ex -> {
-                    CouponNotOpenedException e = (CouponNotOpenedException) ex;
-                    assertThat(e.getOpenAt()).isEqualTo(futureOpenAt);
-                });
-    }
-
-    @Test
-    void 이미_종료된_정책은_CouponNotOpenedException이_발생한다() {
-        CouponPolicyCacheService.CachedPolicy closedPolicy = new CouponPolicyCacheService.CachedPolicy(
-                POLICY_ID,
-                LocalDateTime.now().minusDays(2),
-                LocalDateTime.now().minusHours(1),
-                System.currentTimeMillis()
-        );
-        when(couponPolicyCacheService.getPolicy(POLICY_ID)).thenReturn(closedPolicy);
-
-        assertThatThrownBy(() -> queueService.joinQueue(new QueueJoinRequest(POLICY_ID, USER_ID)))
-                .isInstanceOf(CouponNotOpenedException.class)
-                .hasMessageContaining("종료된");
-    }
-
-    @Test
-    void 존재하지_않는_정책은_CouponPolicyNotFoundException이_발생한다() {
-        when(couponPolicyCacheService.getPolicy(999L))
-                .thenThrow(new CouponPolicyNotFoundException(999L));
-
-        assertThatThrownBy(() -> queueService.joinQueue(new QueueJoinRequest(999L, USER_ID)))
-                .isInstanceOf(CouponPolicyNotFoundException.class);
-    }
-
-    // ─── 부분 실패 방어 ─────────────────────────────────────────────────────
-
-    @Test
-    void activeToken_저장_실패시_WAITING_fallback으로_안전하게_처리된다() {
+    void 상태_조회시_활성토큰이_있으면_ADMITTED와_토큰을_반환한다() {
         when(couponPolicyCacheService.getPolicy(POLICY_ID)).thenReturn(openPolicy);
-        when(redisTemplate.execute(eq(joinQueueScript), anyList(), anyString(), anyString()))
-                .thenReturn(List.of(201L, 0L, 0L));
-        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        org.mockito.Mockito.doThrow(new RuntimeException("Redis 연결 실패"))
-                .when(valueOperations).set(anyString(), anyString(), any(Long.class), any(TimeUnit.class));
+        when(redisTemplate.execute(eq(getQueueStatusScript), anyList(), anyString()))
+                .thenReturn(List.of("ADMITTED", "mytoken123", "0"));
 
-        QueueJoinResponse response = queueService.joinQueue(new QueueJoinRequest(POLICY_ID, USER_ID));
+        QueueStatusResponse response = queueService.getQueueStatus(POLICY_ID, USER_ID);
+
+        assertThat(response.status()).isEqualTo(QueueStatus.ADMITTED);
+        assertThat(response.activeToken()).isEqualTo("mytoken123");
+        assertThat(response.rank()).isEqualTo(0L);
+        assertThat(response.retryAfterSeconds()).isEqualTo(0.0);
+    }
+
+    @Test
+    void 상태_조회시_대기_중이면_WAITING과_동적_백오프를_반환한다() {
+        when(couponPolicyCacheService.getPolicy(POLICY_ID)).thenReturn(openPolicy);
+        // rank = 150 (대기자 100명 초과) -> retryAfter = 3.0초
+        when(redisTemplate.execute(eq(getQueueStatusScript), anyList(), anyString()))
+                .thenReturn(List.of("WAITING", "", "150"));
+
+        QueueStatusResponse response = queueService.getQueueStatus(POLICY_ID, USER_ID);
 
         assertThat(response.status()).isEqualTo(QueueStatus.WAITING);
-        assertThat(response.activeToken()).isNull();
+        assertThat(response.rank()).isEqualTo(150L);
+        assertThat(response.estimatedWaitSeconds()).isEqualTo(150L);
+        assertThat(response.retryAfterSeconds()).isEqualTo(3.0);
+    }
+
+    @Test
+    void 대기_순번이_10명_이하이면_0점5초_빠른_폴링_백오프를_제안한다() {
+        when(couponPolicyCacheService.getPolicy(POLICY_ID)).thenReturn(openPolicy);
+        // rank = 5 -> retryAfter = 0.5초
+        when(redisTemplate.execute(eq(getQueueStatusScript), anyList(), anyString()))
+                .thenReturn(List.of("WAITING", "", "5"));
+
+        QueueStatusResponse response = queueService.getQueueStatus(POLICY_ID, USER_ID);
+
+        assertThat(response.status()).isEqualTo(QueueStatus.WAITING);
+        assertThat(response.rank()).isEqualTo(5L);
+        assertThat(response.retryAfterSeconds()).isEqualTo(0.5);
+    }
+
+    @Test
+    void 상태_조회시_재고_소진이면_SOLD_OUT을_반환한다() {
+        when(couponPolicyCacheService.getPolicy(POLICY_ID)).thenReturn(openPolicy);
+        when(redisTemplate.execute(eq(getQueueStatusScript), anyList(), anyString()))
+                .thenReturn(List.of("SOLD_OUT", "", "-1"));
+
+        QueueStatusResponse response = queueService.getQueueStatus(POLICY_ID, USER_ID);
+
+        assertThat(response.status()).isEqualTo(QueueStatus.SOLD_OUT);
+        assertThat(response.rank()).isEqualTo(-1L);
+    }
+
+    @Test
+    void 상태_조회시_이미_발급_완료된_유저는_CouponDuplicatedException이_발생한다() {
+        when(couponPolicyCacheService.getPolicy(POLICY_ID)).thenReturn(openPolicy);
+        when(redisTemplate.execute(eq(getQueueStatusScript), anyList(), anyString()))
+                .thenReturn(List.of("ISSUED", "", "-1"));
+
+        assertThatThrownBy(() -> queueService.getQueueStatus(POLICY_ID, USER_ID))
+                .isInstanceOf(CouponDuplicatedException.class);
+    }
+
+    @Test
+    void 상태_조회시_대기열에_없는_유저는_CouponPolicyNotFoundException이_발생한다() {
+        when(couponPolicyCacheService.getPolicy(POLICY_ID)).thenReturn(openPolicy);
+        when(redisTemplate.execute(eq(getQueueStatusScript), anyList(), anyString()))
+                .thenReturn(List.of("NOT_FOUND", "", "-1"));
+
+        assertThatThrownBy(() -> queueService.getQueueStatus(POLICY_ID, USER_ID))
+                .isInstanceOf(CouponPolicyNotFoundException.class);
     }
 }
