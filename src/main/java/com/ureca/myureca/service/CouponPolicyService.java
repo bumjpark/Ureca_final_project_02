@@ -25,6 +25,7 @@ public class CouponPolicyService {
     private static final int MAX_RATE_DISCOUNT_VALUE = 100;
 
     private final CouponPolicyRepository couponPolicyRepository;
+    private final CouponPolicyCacheService couponPolicyCacheService;
 
     public PageResponse<CouponPolicyResponse> getCouponPolicies(Pageable pageable) {
         Page<CouponPolicyResponse> page = couponPolicyRepository.findByDeletedAtIsNull(pageable)
@@ -73,6 +74,7 @@ public class CouponPolicyService {
                 request.openAt(),
                 request.closeAt());
 
+        couponPolicyCacheService.evict(policyId);
         return CouponPolicyResponse.from(couponPolicy);
     }
 
@@ -81,6 +83,7 @@ public class CouponPolicyService {
         CouponPolicy couponPolicy = couponPolicyRepository.findByIdAndDeletedAtIsNull(policyId)
                 .orElseThrow(() -> new CouponPolicyNotFoundException(policyId));
         couponPolicy.softDelete();
+        couponPolicyCacheService.evict(policyId);
     }
 
     private void validateBusinessRules(

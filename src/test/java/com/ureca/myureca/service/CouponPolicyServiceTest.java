@@ -28,11 +28,14 @@ class CouponPolicyServiceTest {
         @Mock
         private CouponPolicyRepository couponPolicyRepository;
 
+        @Mock
+        private CouponPolicyCacheService couponPolicyCacheService;
+
         private CouponPolicyService couponPolicyService;
 
         @BeforeEach
         void setUp() {
-                couponPolicyService = new CouponPolicyService(couponPolicyRepository);
+                couponPolicyService = new CouponPolicyService(couponPolicyRepository, couponPolicyCacheService);
         }
 
         @Test
