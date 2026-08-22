@@ -36,6 +36,11 @@ public final class RedisKeys {
         return couponPolicyPrefix(policyId) + ":queue:seq";
     }
 
+    /** 대기열 입장 스케줄러 분산 락 키 (다중 서버 중복 실행 방어용) */
+    public static String lockAdmission(Long policyId) {
+        return "lock:admission:" + policyId;
+    }
+
     private static String couponPolicyPrefix(Long policyId) {
         return "coupon:policy:" + policyId;
     }
