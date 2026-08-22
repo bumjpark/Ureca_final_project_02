@@ -248,4 +248,28 @@ class CouponPolicyServiceTest {
                                 .isInstanceOf(InvalidCouponPolicyException.class)
                                 .hasMessageContaining("RATE");
         }
+
+        @Test
+        void 정책_삭제에_성공하면_소프트_삭제된다() {
+                Long policyId = 1L;
+                CouponPolicy policy = new CouponPolicy(
+                                "삭제할 쿠폰", CouponType.FIXED, 1000, 100, LocalDateTime.now().plusDays(1), null);
+                when(couponPolicyRepository.findByIdAndDeletedAtIsNull(policyId))
+                                .thenReturn(Optional.of(policy));
+
+                couponPolicyService.deleteCouponPolicy(policyId);
+
+                assertThat(policy.isDeleted()).isTrue();
+                assertThat(policy.getDeletedAt()).isNotNull();
+        }
+
+        @Test
+        void 존재하지_않거나_이미_삭제된_정책_삭제시_CouponPolicyNotFoundException이_발생한다() {
+                Long nonExistentId = 999L;
+                when(couponPolicyRepository.findByIdAndDeletedAtIsNull(nonExistentId))
+                                .thenReturn(Optional.empty());
+
+                assertThatThrownBy(() -> couponPolicyService.deleteCouponPolicy(nonExistentId))
+                                .isInstanceOf(CouponPolicyNotFoundException.class);
+        }
 }

@@ -8,6 +8,8 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -38,5 +40,11 @@ public class CouponPolicyAdminController {
             @PathVariable Long policyId,
             @Valid @RequestBody CouponPolicyUpdateRequest request) {
         return couponPolicyService.updateCouponPolicy(policyId, request);
+    }
+
+    @DeleteMapping("/{policyId}")
+    public ResponseEntity<Void> deleteCouponPolicy(@PathVariable Long policyId) {
+        couponPolicyService.deleteCouponPolicy(policyId);
+        return ResponseEntity.noContent().build();
     }
 }

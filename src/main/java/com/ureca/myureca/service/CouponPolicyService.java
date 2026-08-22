@@ -76,6 +76,13 @@ public class CouponPolicyService {
         return CouponPolicyResponse.from(couponPolicy);
     }
 
+    @Transactional
+    public void deleteCouponPolicy(Long policyId) {
+        CouponPolicy couponPolicy = couponPolicyRepository.findByIdAndDeletedAtIsNull(policyId)
+                .orElseThrow(() -> new CouponPolicyNotFoundException(policyId));
+        couponPolicy.softDelete();
+    }
+
     private void validateBusinessRules(
             LocalDateTime openAt,
             LocalDateTime closeAt,

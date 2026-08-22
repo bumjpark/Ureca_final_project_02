@@ -3,7 +3,10 @@ package com.ureca.myureca.controller;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -146,6 +149,24 @@ class CouponPolicyAdminControllerTest {
         mockMvc.perform(patch("/api/admin/coupon-policies/999")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message", containsString("존재하지 않는 쿠폰 정책입니다")));
+    }
+
+    @Test
+    void 정책_삭제에_성공하면_204를_반환한다() throws Exception {
+        doNothing().when(couponPolicyService).deleteCouponPolicy(1L);
+
+        mockMvc.perform(delete("/api/admin/coupon-policies/1"))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void 존재하지_않는_정책_삭제시_404를_반환한다() throws Exception {
+        doThrow(new CouponPolicyNotFoundException(999L))
+                .when(couponPolicyService).deleteCouponPolicy(999L);
+
+        mockMvc.perform(delete("/api/admin/coupon-policies/999"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message", containsString("존재하지 않는 쿠폰 정책입니다")));
     }
