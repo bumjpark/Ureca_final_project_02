@@ -1,4 +1,5 @@
 -- KEYS[1] = active_token:{token}
+-- KEYS[2] = active_user:{policyId}:{userId} (optional)
 -- ARGV[1] = expectedUserId (string)
 -- 반환값:
 --   1  = 성공 (토큰 소비 완료)
@@ -19,4 +20,7 @@ end
 
 -- GET → DEL 사이 경쟁 없이 원자적 소비
 redis.call('DEL', KEYS[1])
+if KEYS[2] then
+    redis.call('DEL', KEYS[2])
+end
 return 1

@@ -12,10 +12,11 @@ import org.springframework.stereotype.Service;
  * 대기열 통과 토큰(activeToken) 소비 서비스.
  *
  * <p>consume_token.lua 를 통해 GET+validate+DEL 을 원자적으로 실행한다.
- * 이를 통해 두 가지를 보장한다:
+ * 이를 통해 세 가지를 보장한다:
  * <ol>
  *   <li>TOCTOU 경쟁 없음: GET 후 DEL 사이의 틈새 중복 소비 원천 차단</li>
  *   <li>토큰 소유자 검증: 다른 userId 가 토큰을 도용해 발급 요청하는 것을 차단</li>
+ *   <li>활성 유저 역방향 키(active_user) 동시 제거로 상태 정합성 보장</li>
  * </ol>
  */
 @Slf4j
@@ -34,19 +35,22 @@ public class ActiveTokenService {
     /**
      * activeToken 을 소비하고 결과를 반환한다.
      *
-     * @param token  대기열 진입 후 발급된 토큰
-     * @param userId 발급 요청 유저 ID (토큰 소유자 검증에 사용)
+     * @param token    대기열 진입 후 발급된 토큰
+     * @param policyId 대상 쿠폰 정책 ID
+     * @param userId   발급 요청 유저 ID (토큰 소유자 검증에 사용)
      * @return 소비 결과 ({@link ConsumeResult})
      */
-    public ConsumeResult consume(String token, Long userId) {
+    public ConsumeResult consume(String token, Long policyId, Long userId) {
         if (token == null || token.isBlank()) {
             return ConsumeResult.NOT_FOUND;
         }
 
         String tokenKey = RedisKeys.activeToken(token);
+        String userKey = (policyId != null && userId != null) ? RedisKeys.activeUser(policyId, userId) : tokenKey;
+
         Long result = redisTemplate.execute(
                 consumeTokenScript,
-                List.of(tokenKey),
+                List.of(tokenKey, userKey),
                 String.valueOf(userId)
         );
 
@@ -67,12 +71,6 @@ public class ActiveTokenService {
 
     /**
      * activeToken 소비 결과.
-     *
-     * <ul>
-     *   <li>{@code OK}            – 정상 소비 완료</li>
-     *   <li>{@code NOT_FOUND}     – 토큰 없음 (만료 또는 이미 소비됨)</li>
-     *   <li>{@code USER_MISMATCH} – 토큰 소유자와 요청 userId 불일치 (도용 의심)</li>
-     * </ul>
      */
     public enum ConsumeResult {
         OK, NOT_FOUND, USER_MISMATCH

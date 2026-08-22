@@ -9,6 +9,11 @@ public final class RedisKeys {
         return "active_token:" + token;
     }
 
+    /** 활성 토큰 발급 유저 역방향 키 (중복 토큰 발급 방어용) */
+    public static String activeUser(Long policyId, Long userId) {
+        return "active_user:" + policyId + ":" + userId;
+    }
+
     public static String couponStock(Long policyId) {
         return couponPolicyPrefix(policyId) + ":stock";
     }

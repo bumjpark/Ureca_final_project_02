@@ -33,6 +33,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 class QueueServiceTest {
 
     @Mock private CouponPolicyCacheService couponPolicyCacheService;
+    @Mock private QueueRateLimiter queueRateLimiter;
     @Mock private StringRedisTemplate redisTemplate;
     @Mock private RedisScript<List<Long>> joinQueueScript;
     @Mock private ValueOperations<String, String> valueOperations;
@@ -45,7 +46,7 @@ class QueueServiceTest {
 
     @BeforeEach
     void setUp() {
-        queueService = new QueueService(couponPolicyCacheService, redisTemplate, joinQueueScript);
+        queueService = new QueueService(couponPolicyCacheService, queueRateLimiter, redisTemplate, joinQueueScript);
         ReflectionTestUtils.setField(queueService, "maxQueueSize", 30000L);
         ReflectionTestUtils.setField(queueService, "tokenTtlSeconds", 60L);
 
@@ -62,7 +63,6 @@ class QueueServiceTest {
     @Test
     void 대기_인원이_있어_200을_받으면_WAITING과_순번을_반환한다() {
         when(couponPolicyCacheService.getPolicy(POLICY_ID)).thenReturn(openPolicy);
-        // 200 WAITING (rank = 5, totalInQueue = 10)
         when(redisTemplate.execute(eq(joinQueueScript), anyList(), anyString(), anyString()))
                 .thenReturn(List.of(200L, 5L, 10L));
 
@@ -77,7 +77,6 @@ class QueueServiceTest {
     @Test
     void 대기열이_비어있어_201을_받으면_즉시_ADMITTED와_activeToken을_반환한다() {
         when(couponPolicyCacheService.getPolicy(POLICY_ID)).thenReturn(openPolicy);
-        // 201 ADMITTED (즉시 입장)
         when(redisTemplate.execute(eq(joinQueueScript), anyList(), anyString(), anyString()))
                 .thenReturn(List.of(201L, 0L, 0L));
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
@@ -154,6 +153,16 @@ class QueueServiceTest {
                 .isInstanceOf(QueueFullException.class);
     }
 
+    @Test
+    void Redis_호출_장애_시_서킷브레이커로_QueueFullException_503을_던진다() {
+        when(couponPolicyCacheService.getPolicy(POLICY_ID)).thenReturn(openPolicy);
+        when(redisTemplate.execute(eq(joinQueueScript), anyList(), anyString(), anyString()))
+                .thenThrow(new RuntimeException("Redis Connection Refused"));
+
+        assertThatThrownBy(() -> queueService.joinQueue(new QueueJoinRequest(POLICY_ID, USER_ID)))
+                .isInstanceOf(QueueFullException.class);
+    }
+
     // ─── 정책 상태 검증 ─────────────────────────────────────────────────────
 
     @Test
@@ -202,7 +211,7 @@ class QueueServiceTest {
     void activeToken_저장_실패시_WAITING_fallback으로_안전하게_처리된다() {
         when(couponPolicyCacheService.getPolicy(POLICY_ID)).thenReturn(openPolicy);
         when(redisTemplate.execute(eq(joinQueueScript), anyList(), anyString(), anyString()))
-                .thenReturn(List.of(201L, 0L, 0L)); // 201 ADMITTED
+                .thenReturn(List.of(201L, 0L, 0L));
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         org.mockito.Mockito.doThrow(new RuntimeException("Redis 연결 실패"))
                 .when(valueOperations).set(anyString(), anyString(), any(Long.class), any(TimeUnit.class));

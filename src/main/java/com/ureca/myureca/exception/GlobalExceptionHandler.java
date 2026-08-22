@@ -69,6 +69,12 @@ public class GlobalExceptionHandler {
                 .body(ErrorResponse.of(HttpStatus.SERVICE_UNAVAILABLE.value(), e.getMessage()));
     }
 
+    @ExceptionHandler(TooManyRequestsException.class)
+    public ResponseEntity<ErrorResponse> handleTooManyRequests(TooManyRequestsException e) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .body(ErrorResponse.of(HttpStatus.TOO_MANY_REQUESTS.value(), e.getMessage()));
+    }
+
     /**
      * 쿠폰 오픈 전/종료 후 접근.
      * 오픈 전인 경우 openAt(오픈 예정 시각)을 errors 필드에 포함 — FR-10 요구사항.

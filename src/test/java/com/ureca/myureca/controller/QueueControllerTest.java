@@ -141,6 +141,19 @@ class QueueControllerTest {
     }
 
     @Test
+    void 연타_호출_시_429_TOO_MANY_REQUESTS를_반환한다() throws Exception {
+        QueueJoinRequest request = new QueueJoinRequest(1L, 42L);
+        when(queueService.joinQueue(any(QueueJoinRequest.class)))
+                .thenThrow(new com.ureca.myureca.exception.TooManyRequestsException());
+
+        mockMvc.perform(post("/api/queue/join")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.message", containsString("요청이 너무 빠릅니다")));
+    }
+
+    @Test
     void 존재하지_않는_정책은_404를_반환한다() throws Exception {
         QueueJoinRequest request = new QueueJoinRequest(999L, 42L);
         when(queueService.joinQueue(any(QueueJoinRequest.class)))

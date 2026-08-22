@@ -53,6 +53,7 @@ public class QueueService {
     private static final long LUA_NOT_INITIALIZED = 500L;
 
     private final CouponPolicyCacheService couponPolicyCacheService;
+    private final QueueRateLimiter queueRateLimiter;
     private final StringRedisTemplate redisTemplate;
     private final RedisScript<List<Long>> joinQueueScript;
 
@@ -60,34 +61,46 @@ public class QueueService {
      * 대기열 등록 메인 로직.
      *
      * <ol>
+     *   <li>Rate Limiter 검증 (유저별 1초 1회 제한으로 매크로/연타 인앱 차단 - 429)</li>
      *   <li>In-Memory 캐시 기반 정책 유효성 검증 (DB Connection Pool 고갈 방어)</li>
-     *   <li>Redis Lua 원자적 판별 (중복, 재고, 정원, 대기열 공백 여부)</li>
+     *   <li>Redis Lua 원자적 판별 (중복, 활성토큰보유, 재고, 정원, 대기열 공백 여부)</li>
      *   <li>상태코드 201(대기자 없음) -> 즉시 activeToken 발급 (ADMITTED)</li>
      *   <li>상태코드 200(대기열 등록됨) -> WAITING 및 순번 반환</li>
+     *   <li>Redis 일시 장애 시 503 Service Unavailable 로 Graceful 격리</li>
      * </ol>
      */
     public QueueJoinResponse joinQueue(QueueJoinRequest request) {
         Long policyId = request.policyId();
         Long userId = request.userId();
 
-        // 1. 정책 유효성 검증 (In-Memory 캐시 조회로 DB 부하 0)
+        // 1. 유저별 1초당 요청 제한 (매크로/연타 429 차단)
+        queueRateLimiter.checkRateLimit(policyId, userId);
+
+        // 2. 정책 유효성 검증 (In-Memory 캐시 조회로 DB 부하 0)
         validatePolicy(policyId);
 
-        // 2. Redis Lua 원자적 실행
+        // 3. Redis Lua 원자적 실행 (Redis 장애 격리 서킷 브레이커)
         List<String> keys = List.of(
                 RedisKeys.couponIssued(policyId),
                 RedisKeys.couponReserved(policyId),
                 RedisKeys.couponStock(policyId),
                 RedisKeys.couponQueue(policyId),
-                RedisKeys.couponQueueSeq(policyId)
+                RedisKeys.couponQueueSeq(policyId),
+                RedisKeys.activeUser(policyId, userId)
         );
 
-        List<Long> result = redisTemplate.execute(
-                joinQueueScript,
-                keys,
-                String.valueOf(userId),
-                String.valueOf(maxQueueSize)
-        );
+        List<Long> result;
+        try {
+            result = redisTemplate.execute(
+                    joinQueueScript,
+                    keys,
+                    String.valueOf(userId),
+                    String.valueOf(maxQueueSize)
+            );
+        } catch (Exception e) {
+            log.error("Redis 대기열 진입 실패 (일시 장애/지연). policyId={}, userId={}", policyId, userId, e);
+            throw new QueueFullException(policyId); // 503 Service Unavailable 로 Graceful 처리
+        }
 
         if (result == null || result.size() < 3) {
             throw new IllegalStateException("대기열 등록 처리 중 Redis 스크립트 응답이 비어있습니다.");
@@ -110,7 +123,7 @@ public class QueueService {
                     "쿠폰 재고가 Redis에 초기화되지 않았습니다. 관리자에게 문의하세요. policyId=" + policyId);
         }
 
-        // 3. 즉시 입장 (201 ADMITTED) vs 대기 (200 WAITING) 분기
+        // 4. 즉시 입장 (201 ADMITTED) vs 대기 (200 WAITING) 분기
         if (LUA_ADMITTED == statusCode) {
             return tryAdmit(policyId, userId);
         }
@@ -120,7 +133,7 @@ public class QueueService {
     }
 
     /**
-     * 즉시 입장 케이스: activeToken 생성 및 Redis 저장 (소유자 userId 매핑).
+     * 즉시 입장 케이스: activeToken 생성 및 Redis 저장 (소유자 userId 매핑 및 역방향 키 등록).
      *
      * <p>activeToken Redis 저장 장애 시 안전하게 WAITING(rank=0)으로 fallback하여
      * 클라이언트의 재조회를 유도한다.
@@ -128,8 +141,13 @@ public class QueueService {
     private QueueJoinResponse tryAdmit(Long policyId, Long userId) {
         String activeToken = UUID.randomUUID().toString().replace("-", "");
         String tokenKey = RedisKeys.activeToken(activeToken);
+        String userKey = RedisKeys.activeUser(policyId, userId);
         try {
+            // 1) active_token:{token} -> userId (토큰 소비 시 검증)
             redisTemplate.opsForValue().set(tokenKey, String.valueOf(userId), tokenTtlSeconds, TimeUnit.SECONDS);
+            // 2) active_user:{policyId}:{userId} -> token (중복 토큰 발급 방어)
+            redisTemplate.opsForValue().set(userKey, activeToken, tokenTtlSeconds, TimeUnit.SECONDS);
+
             log.debug("대기열 즉시 입장: policyId={}, userId={}, token={}", policyId, userId, activeToken);
             return QueueJoinResponse.admitted(activeToken);
         } catch (Exception e) {
@@ -140,7 +158,6 @@ public class QueueService {
 
     /**
      * In-Memory 캐시 기반 정책 유효성 검증.
-     * 대기열 진입 시 DB 커넥션 풀을 소모하지 않도록 캐시에서 메타정보를 확인한다.
      */
     private void validatePolicy(Long policyId) {
         CouponPolicyCacheService.CachedPolicy policy = couponPolicyCacheService.getPolicy(policyId);
