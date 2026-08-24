@@ -240,6 +240,19 @@ class QueueServiceTest {
     }
 
     @Test
+    void 상태_조회시_토큰_만료된_유저는_EXPIRED를_반환한다() {
+        when(couponPolicyCacheService.getPolicy(POLICY_ID)).thenReturn(openPolicy);
+        when(redisTemplate.execute(eq(getQueueStatusScript), anyList(), anyString()))
+                .thenReturn(List.of("EXPIRED", "", "-1"));
+
+        QueueStatusResponse response = queueService.getQueueStatus(POLICY_ID, USER_ID);
+
+        assertThat(response.status()).isEqualTo(QueueStatus.EXPIRED);
+        assertThat(response.rank()).isEqualTo(-1L);
+        assertThat(response.activeToken()).isNull();
+    }
+
+    @Test
     void 상태_조회시_대기열에_없는_유저는_CouponPolicyNotFoundException이_발생한다() {
         when(couponPolicyCacheService.getPolicy(POLICY_ID)).thenReturn(openPolicy);
         when(redisTemplate.execute(eq(getQueueStatusScript), anyList(), anyString()))

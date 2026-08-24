@@ -41,6 +41,11 @@ public final class RedisKeys {
         return "rate_limit:" + policyId + ":" + userId;
     }
 
+    /** 대기열 입장 이력 마커 키 (토큰 만료 vs 미등록 식별용) */
+    public static String admittedMarker(Long policyId, Long userId) {
+        return "admitted_marker:" + policyId + ":" + userId;
+    }
+
     private static String couponPolicyPrefix(Long policyId) {
         return "coupon:policy:" + policyId;
     }

@@ -12,5 +12,6 @@ package com.ureca.myureca.domain.queue;
 public enum QueueStatus {
     WAITING,
     ADMITTED,
-    SOLD_OUT
+    SOLD_OUT,
+    EXPIRED
 }

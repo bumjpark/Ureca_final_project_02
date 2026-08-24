@@ -163,7 +163,8 @@ public class QueueService {
                 RedisKeys.activeUser(policyId, userId),
                 RedisKeys.couponIssued(policyId),
                 RedisKeys.couponStock(policyId),
-                RedisKeys.couponQueue(policyId)
+                RedisKeys.couponQueue(policyId),
+                RedisKeys.admittedMarker(policyId, userId)
         );
 
         List<String> result;
@@ -194,6 +195,7 @@ public class QueueService {
                 yield QueueStatusResponse.waiting(rank, estimatedWait, retryAfter);
             }
             case "SOLD_OUT" -> QueueStatusResponse.soldOut();
+            case "EXPIRED" -> QueueStatusResponse.expired();
             case "ISSUED" -> throw new CouponDuplicatedException("이미 발급 완료된 쿠폰입니다.");
             default -> throw new CouponPolicyNotFoundException(policyId);
         };
@@ -223,9 +225,12 @@ public class QueueService {
         String activeToken = UUID.randomUUID().toString().replace("-", "");
         String tokenKey = RedisKeys.activeToken(activeToken);
         String userKey = RedisKeys.activeUser(policyId, userId);
+        String markerKey = RedisKeys.admittedMarker(policyId, userId);
         try {
             redisTemplate.opsForValue().set(tokenKey, String.valueOf(userId), tokenTtlSeconds, TimeUnit.SECONDS);
             redisTemplate.opsForValue().set(userKey, activeToken, tokenTtlSeconds, TimeUnit.SECONDS);
+            // 토큰 만료 후에도 EXPIRED 상태 감지를 위해 TTL + 300초 동안 마커 보존
+            redisTemplate.opsForValue().set(markerKey, "1", tokenTtlSeconds + 300, TimeUnit.SECONDS);
 
             log.debug("대기열 즉시 입장: policyId={}, userId={}, token={}", policyId, userId, activeToken);
             return QueueJoinResponse.admitted(activeToken);
