@@ -55,6 +55,18 @@ public class QueueAdmissionScheduler {
             Boolean acquired = redisTemplate.opsForValue().setIfAbsent(lockKey, "locked", 1, TimeUnit.SECONDS);
             if (Boolean.TRUE.equals(acquired)) {
                 try {
+                    // 재고 소진(0 이하)된 정책은 Redis 레벨에서 조기 스킵하여 불필요한 ZPOPMIN 호출 방어
+                    String stockStr = redisTemplate.opsForValue().get(RedisKeys.couponStock(policyId));
+                    if (stockStr != null) {
+                        try {
+                            if (Integer.parseInt(stockStr) <= 0) {
+                                log.debug("재고 소진 정책 입장 처리 스킵. policyId={}", policyId);
+                                continue;
+                            }
+                        } catch (NumberFormatException ignored) {
+                        }
+                    }
+
                     queueAdmissionService.admitUsers(policyId, admissionRate);
                 } catch (Exception e) {
                     log.error("대기열 입장 스케줄러 실행 중 오류 발생. policyId={}", policyId, e);
