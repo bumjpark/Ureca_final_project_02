@@ -267,6 +267,20 @@ class CouponPolicyServiceTest {
         }
 
         @Test
+        void 이미_오픈된_정책을_삭제하려_하면_InvalidCouponPolicyException이_발생한다() {
+                Long policyId = 1L;
+                LocalDateTime pastOpenAt = LocalDateTime.now().minusHours(1);
+                CouponPolicy policy = new CouponPolicy(
+                                "이미 오픈된 쿠폰", CouponType.FIXED, 1000, 100, pastOpenAt, null);
+                when(couponPolicyRepository.findByIdAndDeletedAtIsNull(policyId))
+                                .thenReturn(Optional.of(policy));
+
+                assertThatThrownBy(() -> couponPolicyService.deleteCouponPolicy(policyId))
+                                .isInstanceOf(InvalidCouponPolicyException.class)
+                                .hasMessageContaining("오픈 시각 이후");
+        }
+
+        @Test
         void 존재하지_않거나_이미_삭제된_정책_삭제시_CouponPolicyNotFoundException이_발생한다() {
                 Long nonExistentId = 999L;
                 when(couponPolicyRepository.findByIdAndDeletedAtIsNull(nonExistentId))
