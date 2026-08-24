@@ -77,9 +77,11 @@ public class QueueAdmissionService {
 
                     String tokenKey = RedisKeys.activeToken(activeToken);
                     String userKey = RedisKeys.activeUser(policyId, userId);
+                    String markerKey = RedisKeys.admittedMarker(policyId, userId);
 
                     operations.opsForValue().set(tokenKey, String.valueOf(userId), tokenTtlSeconds, TimeUnit.SECONDS);
                     operations.opsForValue().set(userKey, activeToken, tokenTtlSeconds, TimeUnit.SECONDS);
+                    operations.opsForValue().set(markerKey, "1", tokenTtlSeconds + 300, TimeUnit.SECONDS);
                 }
                 return null;
             }

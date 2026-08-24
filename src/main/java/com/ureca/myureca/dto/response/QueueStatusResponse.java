@@ -32,4 +32,8 @@ public record QueueStatusResponse(
     public static QueueStatusResponse soldOut() {
         return new QueueStatusResponse(QueueStatus.SOLD_OUT, -1L, null, 0L, 0.0);
     }
+
+    public static QueueStatusResponse expired() {
+        return new QueueStatusResponse(QueueStatus.EXPIRED, -1L, null, 0L, 0.0);
+    }
 }

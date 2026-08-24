@@ -56,6 +56,7 @@ public class QueueService {
 
     private final CouponPolicyCacheService couponPolicyCacheService;
     private final QueueRateLimiter queueRateLimiter;
+    private final KafkaCouponEventProducer kafkaCouponEventProducer;
     private final StringRedisTemplate redisTemplate;
     private final RedisScript<List<Long>> joinQueueScript;
     private final RedisScript<List<String>> getQueueStatusScript;
@@ -118,12 +119,30 @@ public class QueueService {
         }
 
         // 4. 즉시 입장 (201 ADMITTED) vs 대기 (200 WAITING) 분기
+        QueueJoinResponse response;
         if (LUA_ADMITTED == statusCode) {
-            return tryAdmit(policyId, userId);
+            response = tryAdmit(policyId, userId);
+        } else {
+            long estimatedWait = Math.max(1L, rank * ESTIMATED_SECONDS_PER_PERSON);
+            response = QueueJoinResponse.waiting(rank, estimatedWait);
         }
 
-        long estimatedWait = Math.max(1L, rank * ESTIMATED_SECONDS_PER_PERSON);
-        return QueueJoinResponse.waiting(rank, estimatedWait);
+        // 5. 선착순 감사(Audit) 및 영속성을 위한 Kafka 대기열 진입 이벤트 발행 (비동기 비차단)
+        try {
+            kafkaCouponEventProducer.publishQueueJoinEvent(
+                    new com.ureca.myureca.dto.event.QueueJoinEvent(
+                            policyId,
+                            userId,
+                            response.status(),
+                            response.rank(),
+                            LocalDateTime.now()
+                    )
+            );
+        } catch (Exception e) {
+            log.warn("대기열 진입 Kafka 이벤트 발행 예외 (비차단). policyId={}, userId={}", policyId, userId, e);
+        }
+
+        return response;
     }
 
     /**
@@ -144,7 +163,8 @@ public class QueueService {
                 RedisKeys.activeUser(policyId, userId),
                 RedisKeys.couponIssued(policyId),
                 RedisKeys.couponStock(policyId),
-                RedisKeys.couponQueue(policyId)
+                RedisKeys.couponQueue(policyId),
+                RedisKeys.admittedMarker(policyId, userId)
         );
 
         List<String> result;
@@ -175,6 +195,7 @@ public class QueueService {
                 yield QueueStatusResponse.waiting(rank, estimatedWait, retryAfter);
             }
             case "SOLD_OUT" -> QueueStatusResponse.soldOut();
+            case "EXPIRED" -> QueueStatusResponse.expired();
             case "ISSUED" -> throw new CouponDuplicatedException("이미 발급 완료된 쿠폰입니다.");
             default -> throw new CouponPolicyNotFoundException(policyId);
         };
@@ -204,9 +225,12 @@ public class QueueService {
         String activeToken = UUID.randomUUID().toString().replace("-", "");
         String tokenKey = RedisKeys.activeToken(activeToken);
         String userKey = RedisKeys.activeUser(policyId, userId);
+        String markerKey = RedisKeys.admittedMarker(policyId, userId);
         try {
             redisTemplate.opsForValue().set(tokenKey, String.valueOf(userId), tokenTtlSeconds, TimeUnit.SECONDS);
             redisTemplate.opsForValue().set(userKey, activeToken, tokenTtlSeconds, TimeUnit.SECONDS);
+            // 토큰 만료 후에도 EXPIRED 상태 감지를 위해 TTL + 300초 동안 마커 보존
+            redisTemplate.opsForValue().set(markerKey, "1", tokenTtlSeconds + 300, TimeUnit.SECONDS);
 
             log.debug("대기열 즉시 입장: policyId={}, userId={}, token={}", policyId, userId, activeToken);
             return QueueJoinResponse.admitted(activeToken);
