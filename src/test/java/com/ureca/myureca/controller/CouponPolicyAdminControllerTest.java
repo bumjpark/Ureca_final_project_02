@@ -162,6 +162,16 @@ class CouponPolicyAdminControllerTest {
     }
 
     @Test
+    void 오픈_시각_이후_삭제_시도시_400을_반환한다() throws Exception {
+        doThrow(new InvalidCouponPolicyException("오픈 시각 이후에는 쿠폰 정책을 삭제할 수 없습니다"))
+                .when(couponPolicyService).deleteCouponPolicy(1L);
+
+        mockMvc.perform(delete("/api/admin/coupon-policies/1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message", containsString("오픈 시각 이후")));
+    }
+
+    @Test
     void 존재하지_않는_정책_삭제시_404를_반환한다() throws Exception {
         doThrow(new CouponPolicyNotFoundException(999L))
                 .when(couponPolicyService).deleteCouponPolicy(999L);
