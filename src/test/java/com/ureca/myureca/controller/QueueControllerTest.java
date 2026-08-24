@@ -220,4 +220,15 @@ class QueueControllerTest {
                         .param("policyId", "1")) // userId 누락
                 .andExpect(status().isBadRequest());
     }
+
+    @Test
+    void 대기열_상태조회_미등록_유저는_404_반환() throws Exception {
+        when(queueService.getQueueStatus(eq(1L), eq(42L)))
+                .thenThrow(new com.ureca.myureca.exception.QueueNotRegisteredException(1L, 42L));
+
+        mockMvc.perform(get("/api/queue/status")
+                        .param("policyId", "1")
+                        .param("userId", "42"))
+                .andExpect(status().isNotFound());
+    }
 }
