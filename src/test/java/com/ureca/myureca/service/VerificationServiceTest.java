@@ -16,6 +16,7 @@ import com.ureca.myureca.domain.verification.VerificationStatus;
 import com.ureca.myureca.dto.response.VerificationReportResponse;
 import com.ureca.myureca.exception.CouponPolicyNotFoundException;
 import com.ureca.myureca.exception.VerificationNotAllowedException;
+import com.ureca.myureca.dto.response.PageResponse;
 import com.ureca.myureca.repository.CouponPolicyRepository;
 import com.ureca.myureca.repository.VerificationReportRepository;
 import java.time.LocalDateTime;
@@ -25,6 +26,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -211,5 +215,68 @@ class VerificationServiceTest {
                 });
 
         verify(asyncTrigger, times(1)).execute(any()); // p1만 디스패치됨
+    }
+
+    @Test
+    void 필터_없이_조회하면_findAllByOrderByRunAtDesc를_쓴다() {
+        Pageable pageable = PageRequest.of(0, 10);
+        VerificationReport report = completedReport(1L, 100L);
+        when(verificationReportRepository.findAllByOrderByRunAtDesc(pageable))
+                .thenReturn(new PageImpl<>(List.of(report), pageable, 1));
+
+        PageResponse<VerificationReportResponse> result =
+                verificationService.getVerificationReports(null, null, pageable);
+
+        assertThat(result.content()).hasSize(1);
+        assertThat(result.totalElements()).isEqualTo(1);
+        verify(verificationReportRepository).findAllByOrderByRunAtDesc(pageable);
+    }
+
+    @Test
+    void policyId만_있으면_해당_정책_기준으로_조회한다() {
+        Pageable pageable = PageRequest.of(0, 10);
+        VerificationReport report = completedReport(5L, 100L);
+        when(verificationReportRepository.findByCouponPolicy_IdOrderByRunAtDesc(5L, pageable))
+                .thenReturn(new PageImpl<>(List.of(report), pageable, 1));
+
+        PageResponse<VerificationReportResponse> result =
+                verificationService.getVerificationReports(5L, null, pageable);
+
+        assertThat(result.content()).extracting(VerificationReportResponse::policyId).containsExactly(5L);
+        verify(verificationReportRepository).findByCouponPolicy_IdOrderByRunAtDesc(5L, pageable);
+    }
+
+    @Test
+    void status만_있으면_해당_상태_기준으로_조회한다() {
+        Pageable pageable = PageRequest.of(0, 10);
+        when(verificationReportRepository.findByStatusOrderByRunAtDesc(VerificationStatus.MISMATCH_FOUND, pageable))
+                .thenReturn(new PageImpl<>(List.of(), pageable, 0));
+
+        verificationService.getVerificationReports(null, VerificationStatus.MISMATCH_FOUND, pageable);
+
+        verify(verificationReportRepository)
+                .findByStatusOrderByRunAtDesc(VerificationStatus.MISMATCH_FOUND, pageable);
+    }
+
+    @Test
+    void policyId와_status가_둘_다_있으면_둘_다_적용해서_조회한다() {
+        Pageable pageable = PageRequest.of(0, 10);
+        when(verificationReportRepository.findByCouponPolicy_IdAndStatusOrderByRunAtDesc(
+                5L, VerificationStatus.SUCCESS, pageable))
+                .thenReturn(new PageImpl<>(List.of(), pageable, 0));
+
+        verificationService.getVerificationReports(5L, VerificationStatus.SUCCESS, pageable);
+
+        verify(verificationReportRepository)
+                .findByCouponPolicy_IdAndStatusOrderByRunAtDesc(5L, VerificationStatus.SUCCESS, pageable);
+    }
+
+    private VerificationReport completedReport(long policyId, long reportId) {
+        CouponPolicy p = policy(policyId);
+        VerificationReport report = new VerificationReport(
+                p, LocalDateTime.now(), 3, 0, 0, VerificationStatus.SUCCESS
+        );
+        ReflectionTestUtils.setField(report, "id", reportId);
+        return report;
     }
 }

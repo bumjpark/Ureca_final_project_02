@@ -3,6 +3,7 @@ package com.ureca.myureca.service;
 import com.ureca.myureca.domain.coupon.CouponPolicy;
 import com.ureca.myureca.domain.verification.VerificationReport;
 import com.ureca.myureca.domain.verification.VerificationStatus;
+import com.ureca.myureca.dto.response.PageResponse;
 import com.ureca.myureca.dto.response.VerificationReportResponse;
 import com.ureca.myureca.exception.CouponPolicyNotFoundException;
 import com.ureca.myureca.exception.VerificationDispatchException;
@@ -16,8 +17,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 정합성 검증 배치 오케스트레이터. 접근 조건을 확인하고 대상 정책마다 PENDING 리포트를
@@ -34,6 +39,26 @@ public class VerificationService {
     private final StringRedisTemplate redisTemplate;
     private final VerificationAsyncTrigger asyncTrigger;
 
+    /** 목록 조회. policyId/status 둘 다 선택 필터이며, 최신 실행분이 먼저 오도록 정렬은 고정한다. */
+    @Transactional(readOnly = true)
+    public PageResponse<VerificationReportResponse> getVerificationReports(
+            Long policyId, VerificationStatus status, Pageable pageable
+    ) {
+        Page<VerificationReport> page;
+        if (policyId != null && status != null) {
+            page = verificationReportRepository.findByCouponPolicy_IdAndStatusOrderByRunAtDesc(
+                    policyId, status, pageable);
+        } else if (policyId != null) {
+            page = verificationReportRepository.findByCouponPolicy_IdOrderByRunAtDesc(policyId, pageable);
+        } else if (status != null) {
+            page = verificationReportRepository.findByStatusOrderByRunAtDesc(status, pageable);
+        } else {
+            page = verificationReportRepository.findAllByOrderByRunAtDesc(pageable);
+        }
+        return PageResponse.from(page.map(VerificationReportResponse::from));
+    }
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public List<VerificationReportResponse> runVerification(Long policyId) {
         List<CouponPolicy> allPolicies = couponPolicyRepository.findByDeletedAtIsNull();
         validateNoPolicyHasRemainingStock(allPolicies);
