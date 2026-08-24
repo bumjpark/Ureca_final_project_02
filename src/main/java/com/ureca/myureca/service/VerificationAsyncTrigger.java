@@ -13,6 +13,7 @@ import com.ureca.myureca.support.RedisKeys;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -119,12 +120,15 @@ public class VerificationAsyncTrigger {
                     policyId, totalReserved);
         }
 
-        report.complete(dbUserIds.size(), (int) totalReserved, mismatchCount, status);
-
+        Path csvPath = null;
         if (diffMismatchCount > 0 || overIssuedCount > 0 || stockLeakCount > 0 || !lifecycleAnomalies.isEmpty()) {
             MismatchFindings findings = new MismatchFindings(
                     dbUserIds, redisUserIds, overIssuedCount, stockLeakCount, lifecycleAnomalies);
-            Path csvPath = mismatchReportWriter.write(policyId, runAt, findings);
+            csvPath = mismatchReportWriter.write(policyId, runAt, findings);
+        }
+
+        report.complete(dbUserIds.size(), (int) totalReserved, mismatchCount, status);
+        if (csvPath != null) {
             report.attachReportUrl(csvPath.toString());
         }
     }
@@ -321,6 +325,31 @@ public class VerificationAsyncTrigger {
                     .append(discrepancyType).append(',')
                     .append(runAt)
                     .append('\n');
+        }
+
+        /**
+         * 다운로드용 경로 해석. reportUrl은 클라이언트 입력이 아니라 서버가 직접 쓴 DB 저장값이라
+         * 고전적 경로 탐색 공격 벡터는 아니지만, DB 값 오염에 대비한 defense-in-depth로 reportDir
+         * 밖을 가리키면 방어적으로 거부한다. 항상 이 저장값에서 경로를 해석하고 policyId+runAt으로
+         * 파일명을 재조합하지 않는다 — 동시 요청 시 같은 밀리초에 CSV 파일명이 충돌할 수 있는
+         * 알려진 한계(Verification-Batch-Design.md)를 재계산으로 덮어쓰지 않기 위함이다.
+         */
+        public Path resolveExistingFile(String storedReportUrl) {
+            Path resolved;
+            try {
+                resolved = Path.of(storedReportUrl).toAbsolutePath().normalize();
+            } catch (InvalidPathException e) {
+                // Path.of() 자체가 IllegalStateException이 아니라 InvalidPathException(IllegalArgumentException의
+                // 하위 타입)을 던진다 — DB 값 오염을 방어하려는 이 메서드의 목적을 그대로 지키려면
+                // 호출부가 잡는 예외 타입(IllegalStateException) 하나로 통일해서 다시 던져야 한다.
+                throw new IllegalStateException("reportUrl이 올바른 경로 형식이 아닙니다: " + storedReportUrl, e);
+            }
+            Path root = reportDir.toAbsolutePath().normalize();
+            if (!resolved.startsWith(root)) {
+                throw new IllegalStateException(
+                        "reportUrl이 reportDir(" + root + ") 밖을 가리킵니다: " + storedReportUrl);
+            }
+            return resolved;
         }
     }
 }

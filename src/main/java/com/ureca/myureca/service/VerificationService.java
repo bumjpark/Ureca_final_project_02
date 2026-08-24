@@ -8,15 +8,21 @@ import com.ureca.myureca.dto.response.VerificationReportResponse;
 import com.ureca.myureca.exception.CouponPolicyNotFoundException;
 import com.ureca.myureca.exception.VerificationDispatchException;
 import com.ureca.myureca.exception.VerificationNotAllowedException;
+import com.ureca.myureca.exception.VerificationReportCsvNotAvailableException;
+import com.ureca.myureca.exception.VerificationReportFileMissingException;
+import com.ureca.myureca.exception.VerificationReportNotFoundException;
 import com.ureca.myureca.repository.CouponPolicyRepository;
 import com.ureca.myureca.repository.VerificationReportRepository;
 import com.ureca.myureca.support.RedisKeys;
+import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -38,6 +44,11 @@ public class VerificationService {
     private final VerificationReportRepository verificationReportRepository;
     private final StringRedisTemplate redisTemplate;
     private final VerificationAsyncTrigger asyncTrigger;
+    private final VerificationAsyncTrigger.MismatchReportWriter mismatchReportWriter;
+
+    /** 검증 리포트 상세/다운로드(CSV) 응답에서 파일 하나를 넘기기 위한 묶음. */
+    public record ReportCsvFile(Resource resource, String filename) {
+    }
 
     /** 목록 조회. policyId/status 둘 다 선택 필터이며, 최신 실행분이 먼저 오도록 정렬은 고정한다. */
     @Transactional(readOnly = true)
@@ -56,6 +67,44 @@ public class VerificationService {
             page = verificationReportRepository.findAllByOrderByRunAtDesc(pageable);
         }
         return PageResponse.from(page.map(VerificationReportResponse::from));
+    }
+
+    /** 단건 상세 조회. PENDING 리포트를 폴링하는 용도로도 쓰인다. */
+    @Transactional(readOnly = true)
+    public VerificationReportResponse getVerificationReport(Long id) {
+        return VerificationReportResponse.from(findReportOrThrow(id));
+    }
+
+    /**
+     * CSV 다운로드용 파일 조회
+     */
+    @Transactional(readOnly = true)
+    public ReportCsvFile getVerificationReportCsv(Long id) {
+        VerificationReport report = findReportOrThrow(id);
+        String reportUrl = report.getReportUrl();
+        if (reportUrl == null) {
+            throw new VerificationReportCsvNotAvailableException(id, report.getStatus());
+        }
+
+        Path resolved;
+        try {
+            resolved = mismatchReportWriter.resolveExistingFile(reportUrl);
+        } catch (IllegalStateException e) {
+            throw new VerificationReportFileMissingException(id, reportUrl);
+        }
+
+        Resource resource = new FileSystemResource(resolved);
+        if (!resource.exists() || !resource.isReadable()) {
+            throw new VerificationReportFileMissingException(id, reportUrl);
+        }
+
+        String filename = "verification-report-%d-%d.csv".formatted(report.getCouponPolicy().getId(), report.getId());
+        return new ReportCsvFile(resource, filename);
+    }
+
+    private VerificationReport findReportOrThrow(Long id) {
+        return verificationReportRepository.findById(id)
+                .orElseThrow(() -> new VerificationReportNotFoundException(id));
     }
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)

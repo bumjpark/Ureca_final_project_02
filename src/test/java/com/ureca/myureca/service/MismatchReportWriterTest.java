@@ -79,4 +79,30 @@ class MismatchReportWriterTest {
         assertThat(content).contains("1,100,10,HISTORY_MISMATCH," + RUN_AT);
         assertThat(content).contains("1,200,20,MISSING_HISTORY," + RUN_AT);
     }
+
+    @Test
+    void reportDir_안의_경로는_그대로_해석한다() throws IOException {
+        Path csv = Files.writeString(tempDir.resolve("verification-1-123.csv"), "x");
+
+        Path resolved = writer().resolveExistingFile(csv.toString());
+
+        assertThat(resolved).isEqualTo(csv.toAbsolutePath().normalize());
+    }
+
+    @Test
+    void reportDir_밖의_경로는_거부한다() {
+        Path outside = tempDir.resolveSibling("outside-report.csv");
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> writer().resolveExistingFile(outside.toString()))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void 경로_형식_자체가_깨진_reportUrl도_IllegalStateException으로_통일해서_던진다() {
+        String malformed = tempDir.toString() + java.io.File.separator + "verification-1-1<>.csv";
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> writer().resolveExistingFile(malformed))
+                .isInstanceOf(IllegalStateException.class)
+                .hasCauseInstanceOf(java.nio.file.InvalidPathException.class);
+    }
 }

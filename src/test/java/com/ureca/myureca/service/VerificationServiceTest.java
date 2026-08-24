@@ -16,14 +16,21 @@ import com.ureca.myureca.domain.verification.VerificationStatus;
 import com.ureca.myureca.dto.response.VerificationReportResponse;
 import com.ureca.myureca.exception.CouponPolicyNotFoundException;
 import com.ureca.myureca.exception.VerificationNotAllowedException;
+import com.ureca.myureca.exception.VerificationReportCsvNotAvailableException;
+import com.ureca.myureca.exception.VerificationReportFileMissingException;
+import com.ureca.myureca.exception.VerificationReportNotFoundException;
 import com.ureca.myureca.dto.response.PageResponse;
 import com.ureca.myureca.repository.CouponPolicyRepository;
 import com.ureca.myureca.repository.VerificationReportRepository;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
@@ -56,12 +63,19 @@ class VerificationServiceTest {
     @Mock
     private VerificationAsyncTrigger asyncTrigger;
 
+    @Mock
+    private VerificationAsyncTrigger.MismatchReportWriter mismatchReportWriter;
+
+    @TempDir
+    Path tempDir;
+
     private VerificationService verificationService;
 
     @BeforeEach
     void setUp() {
         verificationService = new VerificationService(
-                couponPolicyRepository, verificationReportRepository, redisTemplate, asyncTrigger
+                couponPolicyRepository, verificationReportRepository, redisTemplate, asyncTrigger,
+                mismatchReportWriter
         );
     }
 
@@ -269,6 +283,128 @@ class VerificationServiceTest {
 
         verify(verificationReportRepository)
                 .findByCouponPolicy_IdAndStatusOrderByRunAtDesc(5L, VerificationStatus.SUCCESS, pageable);
+    }
+
+    @Test
+    void 상세_조회에_성공하면_DTO를_반환한다() {
+        VerificationReport report = completedReport(1L, 100L);
+        when(verificationReportRepository.findById(100L)).thenReturn(Optional.of(report));
+
+        VerificationReportResponse response = verificationService.getVerificationReport(100L);
+
+        assertThat(response.id()).isEqualTo(100L);
+        assertThat(response.policyId()).isEqualTo(1L);
+    }
+
+    @Test
+    void 존재하지_않는_리포트_id면_상세_조회에_예외가_발생한다() {
+        when(verificationReportRepository.findById(999L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> verificationService.getVerificationReport(999L))
+                .isInstanceOf(VerificationReportNotFoundException.class);
+    }
+
+    @Test
+    void 존재하지_않는_리포트_id면_CSV_다운로드에도_예외가_발생한다() {
+        when(verificationReportRepository.findById(999L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> verificationService.getVerificationReportCsv(999L))
+                .isInstanceOf(VerificationReportNotFoundException.class);
+    }
+
+    @Test
+    void PENDING_리포트는_CSV_다운로드가_불가능하다() {
+        VerificationReport report = VerificationReport.pending(policy(1L), LocalDateTime.now());
+        ReflectionTestUtils.setField(report, "id", 100L);
+        when(verificationReportRepository.findById(100L)).thenReturn(Optional.of(report));
+
+        assertThatThrownBy(() -> verificationService.getVerificationReportCsv(100L))
+                .isInstanceOf(VerificationReportCsvNotAvailableException.class)
+                .satisfies(e -> assertThat(((VerificationReportCsvNotAvailableException) e).getStatus())
+                        .isEqualTo(VerificationStatus.PENDING));
+    }
+
+    @Test
+    void SUCCESS_리포트는_CSV_다운로드가_불가능하다() {
+        VerificationReport report = completedReport(1L, 100L); // SUCCESS, reportUrl 없음
+        when(verificationReportRepository.findById(100L)).thenReturn(Optional.of(report));
+
+        assertThatThrownBy(() -> verificationService.getVerificationReportCsv(100L))
+                .isInstanceOf(VerificationReportCsvNotAvailableException.class)
+                .satisfies(e -> assertThat(((VerificationReportCsvNotAvailableException) e).getStatus())
+                        .isEqualTo(VerificationStatus.SUCCESS));
+    }
+
+    @Test
+    void FAILED_리포트는_CSV_다운로드가_불가능하다() {
+        VerificationReport report = VerificationReport.pending(policy(1L), LocalDateTime.now());
+        report.fail("Redis 연결 실패 시뮬레이션");
+        ReflectionTestUtils.setField(report, "id", 100L);
+        when(verificationReportRepository.findById(100L)).thenReturn(Optional.of(report));
+
+        assertThatThrownBy(() -> verificationService.getVerificationReportCsv(100L))
+                .isInstanceOf(VerificationReportCsvNotAvailableException.class)
+                .satisfies(e -> assertThat(((VerificationReportCsvNotAvailableException) e).getStatus())
+                        .isEqualTo(VerificationStatus.FAILED));
+    }
+
+    @Test
+    void 실제_CSV_파일이_있으면_다운로드용_리소스를_반환한다() throws Exception {
+        VerificationAsyncTrigger.MismatchReportWriter realWriter =
+                new VerificationAsyncTrigger.MismatchReportWriter(tempDir.toString());
+        VerificationService service = new VerificationService(
+                couponPolicyRepository, verificationReportRepository, redisTemplate, asyncTrigger, realWriter);
+
+        Path csvFile = tempDir.resolve("verification-1-123.csv");
+        Files.writeString(csvFile, "policyId,userId,couponIssueId,discrepancyType,detectedAt\n");
+
+        VerificationReport report = new VerificationReport(
+                policy(1L), LocalDateTime.now(), 3, 0, 1, VerificationStatus.MISMATCH_FOUND
+        );
+        report.attachReportUrl(csvFile.toString());
+        ReflectionTestUtils.setField(report, "id", 100L);
+        when(verificationReportRepository.findById(100L)).thenReturn(Optional.of(report));
+
+        VerificationService.ReportCsvFile result = service.getVerificationReportCsv(100L);
+
+        assertThat(result.resource().exists()).isTrue();
+        assertThat(result.filename()).isEqualTo("verification-report-1-100.csv");
+    }
+
+    @Test
+    void 저장된_경로의_파일이_실제로_없으면_예외가_발생한다() {
+        VerificationAsyncTrigger.MismatchReportWriter realWriter =
+                new VerificationAsyncTrigger.MismatchReportWriter(tempDir.toString());
+        VerificationService service = new VerificationService(
+                couponPolicyRepository, verificationReportRepository, redisTemplate, asyncTrigger, realWriter);
+
+        VerificationReport report = new VerificationReport(
+                policy(1L), LocalDateTime.now(), 3, 0, 1, VerificationStatus.MISMATCH_FOUND
+        );
+        report.attachReportUrl(tempDir.resolve("never-written.csv").toString()); // 실제로는 안 씀
+        ReflectionTestUtils.setField(report, "id", 100L);
+        when(verificationReportRepository.findById(100L)).thenReturn(Optional.of(report));
+
+        assertThatThrownBy(() -> service.getVerificationReportCsv(100L))
+                .isInstanceOf(VerificationReportFileMissingException.class);
+    }
+
+    @Test
+    void 저장된_경로가_reportDir_밖이면_예외가_발생한다() {
+        VerificationAsyncTrigger.MismatchReportWriter realWriter =
+                new VerificationAsyncTrigger.MismatchReportWriter(tempDir.toString());
+        VerificationService service = new VerificationService(
+                couponPolicyRepository, verificationReportRepository, redisTemplate, asyncTrigger, realWriter);
+
+        VerificationReport report = new VerificationReport(
+                policy(1L), LocalDateTime.now(), 3, 0, 1, VerificationStatus.MISMATCH_FOUND
+        );
+        report.attachReportUrl(tempDir.resolveSibling("outside.csv").toString()); // reportDir 밖
+        ReflectionTestUtils.setField(report, "id", 100L);
+        when(verificationReportRepository.findById(100L)).thenReturn(Optional.of(report));
+
+        assertThatThrownBy(() -> service.getVerificationReportCsv(100L))
+                .isInstanceOf(VerificationReportFileMissingException.class);
     }
 
     private VerificationReport completedReport(long policyId, long reportId) {

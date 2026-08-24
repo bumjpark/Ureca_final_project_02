@@ -342,6 +342,26 @@ class VerificationAsyncTriggerTest {
     }
 
     @Test
+    void CSV_쓰기가_실패하면_MISMATCH_FOUND로_먼저_확정되지_않고_FAILED로_처리된다() {
+        CouponPolicy policy = policy(1L, 10000);
+        VerificationReport report = pendingReport(policy);
+        when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
+        when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(100L));
+        when(setOperations.members(any())).thenReturn(Set.of()); // Redis엔 없음 -> diff 1건 -> CSV 쓰기 시도
+        when(zSetOperations.size(any())).thenReturn(0L);
+        when(mismatchReportWriter.write(any(), any(), any()))
+                .thenThrow(new java.io.UncheckedIOException(
+                        "검증 불일치 리포트(CSV) 작성 실패", new java.io.IOException("디스크 쓰기 실패 시뮬레이션")));
+
+        asyncTrigger.execute(1L);
+
+        assertThat(report.getStatus()).isEqualTo(VerificationStatus.FAILED);
+        assertThat(report.getFailureReason()).contains("검증 불일치 리포트(CSV) 작성 실패");
+        assertThat(report.getMismatchCount()).isZero(); // complete()가 호출된 적이 없어야 함
+        assertThat(report.getReportUrl()).isNull();
+    }
+
+    @Test
     void 이미_최종_상태인_리포트는_실패_처리로_덮어쓰지_않는다() {
         CouponPolicy policy = policy(1L, 10000);
         VerificationReport report = pendingReport(policy);

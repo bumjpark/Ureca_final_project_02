@@ -79,6 +79,27 @@ public class GlobalExceptionHandler {
                 .body(ErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR.value(), e.getMessage(), errors));
     }
 
+    @ExceptionHandler(VerificationReportNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleVerificationReportNotFound(VerificationReportNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ErrorResponse.of(HttpStatus.NOT_FOUND.value(), e.getMessage()));
+    }
+
+    @ExceptionHandler(VerificationReportCsvNotAvailableException.class)
+    public ResponseEntity<ErrorResponse> handleVerificationReportCsvNotAvailable(
+            VerificationReportCsvNotAvailableException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ErrorResponse.of(HttpStatus.CONFLICT.value(), e.getMessage()));
+    }
+
+    @ExceptionHandler(VerificationReportFileMissingException.class)
+    public ResponseEntity<ErrorResponse> handleVerificationReportFileMissing(
+            VerificationReportFileMissingException e) {
+        log.error("검증 리포트 CSV 파일이 디스크에 없음(DB row는 존재). {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.GONE)
+                .body(ErrorResponse.of(HttpStatus.GONE.value(), e.getMessage()));
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleValidationException(MethodArgumentNotValidException e) {
         List<String> errors = e.getBindingResult().getFieldErrors().stream()
