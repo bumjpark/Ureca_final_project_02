@@ -82,6 +82,11 @@ public class CouponPolicyService {
     public void deleteCouponPolicy(Long policyId) {
         CouponPolicy couponPolicy = couponPolicyRepository.findByIdAndDeletedAtIsNull(policyId)
                 .orElseThrow(() -> new CouponPolicyNotFoundException(policyId));
+
+        if (!LocalDateTime.now().isBefore(couponPolicy.getOpenAt())) {
+            throw new InvalidCouponPolicyException("오픈 시각 이후에는 쿠폰 정책을 삭제할 수 없습니다");
+        }
+
         couponPolicy.softDelete();
         couponPolicyCacheService.evict(policyId);
     }
