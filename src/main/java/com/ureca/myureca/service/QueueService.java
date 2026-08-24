@@ -54,6 +54,7 @@ public class QueueService {
 
     private final CouponPolicyCacheService couponPolicyCacheService;
     private final QueueRateLimiter queueRateLimiter;
+    private final KafkaCouponEventProducer kafkaCouponEventProducer;
     private final StringRedisTemplate redisTemplate;
     private final RedisScript<List<Long>> joinQueueScript;
 
@@ -124,12 +125,30 @@ public class QueueService {
         }
 
         // 4. 즉시 입장 (201 ADMITTED) vs 대기 (200 WAITING) 분기
+        QueueJoinResponse response;
         if (LUA_ADMITTED == statusCode) {
-            return tryAdmit(policyId, userId);
+            response = tryAdmit(policyId, userId);
+        } else {
+            long estimatedWait = Math.max(1L, rank * ESTIMATED_SECONDS_PER_PERSON);
+            response = QueueJoinResponse.waiting(rank, estimatedWait);
         }
 
-        long estimatedWait = Math.max(1L, rank * ESTIMATED_SECONDS_PER_PERSON);
-        return QueueJoinResponse.waiting(rank, estimatedWait);
+        // 5. 선착순 감사(Audit) 및 영속성을 위한 Kafka 대기열 진입 이벤트 발행 (비동기 비차단)
+        try {
+            kafkaCouponEventProducer.publishQueueJoinEvent(
+                    new com.ureca.myureca.dto.event.QueueJoinEvent(
+                            policyId,
+                            userId,
+                            response.status(),
+                            response.rank(),
+                            LocalDateTime.now()
+                    )
+            );
+        } catch (Exception e) {
+            log.warn("대기열 진입 Kafka 이벤트 발행 예외 (비차단). policyId={}, userId={}", policyId, userId, e);
+        }
+
+        return response;
     }
 
     /**

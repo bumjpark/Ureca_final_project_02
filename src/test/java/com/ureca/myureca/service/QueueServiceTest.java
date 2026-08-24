@@ -34,6 +34,7 @@ class QueueServiceTest {
 
     @Mock private CouponPolicyCacheService couponPolicyCacheService;
     @Mock private QueueRateLimiter queueRateLimiter;
+    @Mock private KafkaCouponEventProducer kafkaCouponEventProducer;
     @Mock private StringRedisTemplate redisTemplate;
     @Mock private RedisScript<List<Long>> joinQueueScript;
     @Mock private ValueOperations<String, String> valueOperations;
@@ -46,7 +47,7 @@ class QueueServiceTest {
 
     @BeforeEach
     void setUp() {
-        queueService = new QueueService(couponPolicyCacheService, queueRateLimiter, redisTemplate, joinQueueScript);
+        queueService = new QueueService(couponPolicyCacheService, queueRateLimiter, kafkaCouponEventProducer, redisTemplate, joinQueueScript);
         ReflectionTestUtils.setField(queueService, "maxQueueSize", 30000L);
         ReflectionTestUtils.setField(queueService, "tokenTtlSeconds", 60L);
 
@@ -72,6 +73,7 @@ class QueueServiceTest {
         assertThat(response.rank()).isEqualTo(5L);
         assertThat(response.activeToken()).isNull();
         assertThat(response.estimatedWaitSeconds()).isEqualTo(5L);
+        org.mockito.Mockito.verify(kafkaCouponEventProducer).publishQueueJoinEvent(any(com.ureca.myureca.dto.event.QueueJoinEvent.class));
     }
 
     @Test
