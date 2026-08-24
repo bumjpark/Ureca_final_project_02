@@ -36,6 +36,11 @@ public final class RedisKeys {
         return couponPolicyPrefix(policyId) + ":queue:seq";
     }
 
+    /** 유저별 대기열 진입 Rate Limit 키 */
+    public static String rateLimit(Long policyId, Long userId) {
+        return "rate_limit:" + policyId + ":" + userId;
+    }
+
     private static String couponPolicyPrefix(Long policyId) {
         return "coupon:policy:" + policyId;
     }
