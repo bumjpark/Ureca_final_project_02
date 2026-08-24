@@ -51,11 +51,23 @@ public class QueueAdmissionScheduler {
             Boolean acquired = redisTemplate.opsForValue().setIfAbsent(lockKey, "locked", 1, TimeUnit.SECONDS);
             if (Boolean.TRUE.equals(acquired)) {
                 try {
+                    // 1) 재고 소진(0 이하)된 정책은 Redis 레벨에서 조기 스킵하여 불필요한 연산 방어
+                    String stockStr = redisTemplate.opsForValue().get(RedisKeys.couponStock(policyId));
+                    if (stockStr != null) {
+                        try {
+                            if (Integer.parseInt(stockStr) <= 0) {
+                                log.debug("재고 소진 정책 입장 처리 스킵. policyId={}", policyId);
+                                continue;
+                            }
+                        } catch (NumberFormatException ignored) {
+                        }
+                    }
+
+                    // 2) 실시간 동적 Limit + 대기열 부하 기반 자동 스케일링 적용
                     String queueKey = RedisKeys.couponQueue(policyId);
                     Long queueSize = redisTemplate.opsForZSet().zCard(queueKey);
                     long currentSize = (queueSize != null) ? queueSize : 0L;
 
-                    // 실시간 동적 Limit + 대기열 부하 기반 자동 스케일링 적용
                     int effectiveLimit = queueLimitAdminService.calculateAutoScaledLimit(policyId, currentSize);
                     queueAdmissionService.admitUsers(policyId, effectiveLimit);
                 } catch (Exception e) {

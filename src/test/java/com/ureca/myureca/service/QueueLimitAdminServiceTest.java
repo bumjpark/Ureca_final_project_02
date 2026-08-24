@@ -134,4 +134,18 @@ class QueueLimitAdminServiceTest {
 
         assertThat(autoLimit).isEqualTo(900);
     }
+
+    @Test
+    void limit이_1미만이면_IllegalArgumentException이_발생한다() {
+        assertThatThrownBy(() -> limitAdminService.updateLimit(new QueueLimitUpdateRequest(POLICY_ID, 0)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("이상");
+    }
+
+    @Test
+    void limit이_50000초과이면_IllegalArgumentException이_발생한다() {
+        assertThatThrownBy(() -> limitAdminService.updateLimit(new QueueLimitUpdateRequest(POLICY_ID, 50001)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("이하");
+    }
 }

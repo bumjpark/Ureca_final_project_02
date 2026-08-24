@@ -26,6 +26,9 @@ public class QueueLimitAdminService {
     @Value("${coupon.queue.admission-rate:300}")
     private int defaultAdmissionRate;
 
+    private static final int MIN_LIMIT = 1;
+    private static final int MAX_LIMIT = 50000;
+
     /**
      * 대기열 처리 Limit을 실시간으로 변경한다.
      *
@@ -35,6 +38,11 @@ public class QueueLimitAdminService {
     public QueueLimitResponse updateLimit(QueueLimitUpdateRequest request) {
         Long policyId = request.policyId();
         int limit = request.limit();
+
+        if (limit < MIN_LIMIT || limit > MAX_LIMIT) {
+            throw new IllegalArgumentException(
+                    String.format("대기열 Limit은 %d 이상 %d 이하여야 합니다. 입력값=%d", MIN_LIMIT, MAX_LIMIT, limit));
+        }
 
         if (policyId != null) {
             // 정책 존재 여부 검증

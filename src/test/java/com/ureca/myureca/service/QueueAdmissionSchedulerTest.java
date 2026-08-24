@@ -62,6 +62,7 @@ class QueueAdmissionSchedulerTest {
         when(zSetOperations.zCard(RedisKeys.couponQueue(POLICY_ID))).thenReturn(100L);
         when(valueOperations.setIfAbsent(eq(RedisKeys.lockAdmission(POLICY_ID)), eq("locked"), eq(1L), eq(TimeUnit.SECONDS)))
                 .thenReturn(true);
+        when(valueOperations.get(RedisKeys.couponStock(POLICY_ID))).thenReturn("100");
         when(queueLimitAdminService.calculateAutoScaledLimit(POLICY_ID, 100L)).thenReturn(500); // 동적 Limit 500
 
         scheduler.processQueueAdmission();
@@ -92,6 +93,20 @@ class QueueAdmissionSchedulerTest {
 
         when(couponPolicyRepository.findByDeletedAtIsNull(any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(futurePolicy)));
+
+        scheduler.processQueueAdmission();
+
+        verify(queueAdmissionService, never()).admitUsers(anyLong(), anyInt());
+    }
+
+    @Test
+    void 재고가_0인_정책은_admitUsers를_호출하지_않고_스킵한다() {
+        when(couponPolicyRepository.findByDeletedAtIsNull(any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(activePolicy)));
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.setIfAbsent(eq(RedisKeys.lockAdmission(POLICY_ID)), eq("locked"), eq(1L), eq(TimeUnit.SECONDS)))
+                .thenReturn(true);
+        when(valueOperations.get(RedisKeys.couponStock(POLICY_ID))).thenReturn("0");
 
         scheduler.processQueueAdmission();
 
