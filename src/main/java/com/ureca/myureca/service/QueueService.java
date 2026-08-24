@@ -15,6 +15,9 @@ import java.util.concurrent.TimeUnit;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.core.RedisOperations;
+import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Service;
@@ -162,10 +165,15 @@ public class QueueService {
         String tokenKey = RedisKeys.activeToken(activeToken);
         String userKey = RedisKeys.activeUser(policyId, userId);
         try {
-            // 1) active_token:{token} -> userId (토큰 소비 시 검증)
-            redisTemplate.opsForValue().set(tokenKey, String.valueOf(userId), tokenTtlSeconds, TimeUnit.SECONDS);
-            // 2) active_user:{policyId}:{userId} -> token (중복 토큰 발급 방어)
-            redisTemplate.opsForValue().set(userKey, activeToken, tokenTtlSeconds, TimeUnit.SECONDS);
+            redisTemplate.executePipelined(new SessionCallback<>() {
+                @Override
+                @SuppressWarnings("unchecked")
+                public Object execute(RedisOperations operations) throws DataAccessException {
+                    operations.opsForValue().set(tokenKey, String.valueOf(userId), tokenTtlSeconds, TimeUnit.SECONDS);
+                    operations.opsForValue().set(userKey, activeToken, tokenTtlSeconds, TimeUnit.SECONDS);
+                    return null;
+                }
+            });
 
             log.debug("대기열 즉시 입장: policyId={}, userId={}, token={}", policyId, userId, activeToken);
             return QueueJoinResponse.admitted(activeToken);

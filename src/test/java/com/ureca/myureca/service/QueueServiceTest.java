@@ -81,7 +81,6 @@ class QueueServiceTest {
         when(couponPolicyCacheService.getPolicy(POLICY_ID)).thenReturn(openPolicy);
         when(redisTemplate.execute(eq(joinQueueScript), anyList(), anyString(), anyString()))
                 .thenReturn(List.of(201L, 0L, 0L));
-        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
 
         QueueJoinResponse response = queueService.joinQueue(new QueueJoinRequest(POLICY_ID, USER_ID));
 
@@ -214,9 +213,8 @@ class QueueServiceTest {
         when(couponPolicyCacheService.getPolicy(POLICY_ID)).thenReturn(openPolicy);
         when(redisTemplate.execute(eq(joinQueueScript), anyList(), anyString(), anyString()))
                 .thenReturn(List.of(201L, 0L, 0L));
-        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        org.mockito.Mockito.doThrow(new RuntimeException("Redis 연결 실패"))
-                .when(valueOperations).set(anyString(), anyString(), any(Long.class), any(TimeUnit.class));
+        when(redisTemplate.executePipelined(any(org.springframework.data.redis.core.SessionCallback.class)))
+                .thenThrow(new RuntimeException("Redis 연결 실패"));
 
         QueueJoinResponse response = queueService.joinQueue(new QueueJoinRequest(POLICY_ID, USER_ID));
 
