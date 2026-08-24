@@ -18,6 +18,8 @@ public record VerificationReportResponse(
         Integer oversoldCount,
         VerificationStatus status,
         String reportUrl,
+        /** status가 FAILED일 때만 값이 있다. 그 외 상태에서는 null. */
+        String failureReason,
         LocalDateTime createdAt
 ) {
 
@@ -35,6 +37,7 @@ public record VerificationReportResponse(
                 oversoldCount,
                 report.getStatus(),
                 report.getReportUrl(),
+                report.getFailureReason(),
                 report.getCreatedAt()
         );
     }

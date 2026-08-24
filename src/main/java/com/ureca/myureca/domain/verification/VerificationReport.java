@@ -63,12 +63,16 @@ public class VerificationReport {
             name = "status",
             nullable = false,
             length = 20,
-            check = @CheckConstraint(name = "chk_verification_status", constraint = "status in ('PENDING','SUCCESS','MISMATCH_FOUND')")
+            check = @CheckConstraint(name = "chk_verification_status", constraint = "status in ('PENDING','SUCCESS','MISMATCH_FOUND','FAILED')")
     )
     private VerificationStatus status;
 
     @Column(name = "report_url", length = 255)
     private String reportUrl;
+
+    /** 비동기 실행이 FAILED로 끝났을 때 남기는 예외 메시지 요약. 그 외 상태에서는 null. */
+    @Column(name = "failure_reason", length = 500)
+    private String failureReason;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -112,5 +116,13 @@ public class VerificationReport {
     /** 불일치 상세 내역 CSV가 생성된 이후 파일 경로를 리포트에 연결한다. */
     public void attachReportUrl(String reportUrl) {
         this.reportUrl = reportUrl;
+    }
+
+    public void fail(String reason) {
+        if (this.status != VerificationStatus.PENDING) {
+            throw new IllegalStateException("PENDING 상태에서만 실패 처리할 수 있습니다. 현재 상태: " + this.status);
+        }
+        this.status = VerificationStatus.FAILED;
+        this.failureReason = reason;
     }
 }
