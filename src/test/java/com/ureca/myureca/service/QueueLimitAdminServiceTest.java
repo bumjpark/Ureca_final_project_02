@@ -110,4 +110,28 @@ class QueueLimitAdminServiceTest {
 
         assertThat(effectiveLimit).isEqualTo(300);
     }
+
+    @Test
+    void 대기열_인원이_5000명_이상_급증하면_Limit이_2배로_자동_스케일링된다() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.get(RedisKeys.queueLimit(POLICY_ID))).thenReturn(null);
+        when(valueOperations.get(RedisKeys.queueDefaultLimit())).thenReturn(null);
+
+        // 기본 300 -> 5000명 대기 시 600
+        int autoLimit = limitAdminService.calculateAutoScaledLimit(POLICY_ID, 6000L);
+
+        assertThat(autoLimit).isEqualTo(600);
+    }
+
+    @Test
+    void 대기열_인원이_10000명_이상_폭증하면_Limit이_3배로_자동_스케일링된다() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.get(RedisKeys.queueLimit(POLICY_ID))).thenReturn(null);
+        when(valueOperations.get(RedisKeys.queueDefaultLimit())).thenReturn(null);
+
+        // 기본 300 -> 12000명 대기 시 900
+        int autoLimit = limitAdminService.calculateAutoScaledLimit(POLICY_ID, 12000L);
+
+        assertThat(autoLimit).isEqualTo(900);
+    }
 }

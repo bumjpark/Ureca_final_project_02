@@ -51,8 +51,12 @@ public class QueueAdmissionScheduler {
             Boolean acquired = redisTemplate.opsForValue().setIfAbsent(lockKey, "locked", 1, TimeUnit.SECONDS);
             if (Boolean.TRUE.equals(acquired)) {
                 try {
-                    // 실시간 동적 Limit 조회 (정책별 ➔ 글로벌 ➔ 기본 설정값)
-                    int effectiveLimit = queueLimitAdminService.getEffectiveLimit(policyId);
+                    String queueKey = RedisKeys.couponQueue(policyId);
+                    Long queueSize = redisTemplate.opsForZSet().zCard(queueKey);
+                    long currentSize = (queueSize != null) ? queueSize : 0L;
+
+                    // 실시간 동적 Limit + 대기열 부하 기반 자동 스케일링 적용
+                    int effectiveLimit = queueLimitAdminService.calculateAutoScaledLimit(policyId, currentSize);
                     queueAdmissionService.admitUsers(policyId, effectiveLimit);
                 } catch (Exception e) {
                     log.error("대기열 입장 스케줄러 실행 중 오류 발생. policyId={}", policyId, e);

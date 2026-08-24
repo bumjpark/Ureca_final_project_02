@@ -83,4 +83,23 @@ public class QueueLimitAdminService {
 
         return defaultAdmissionRate;
     }
+
+    /**
+     * 대기열 부하 상태에 따라 처리 Limit을 자동 스케일링한다.
+     *
+     * <ul>
+     *   <li>대기열 인원이 5,000명 이상으로 급증 시: 기본값의 2배(최대 1,000)로 동적 확장</li>
+     *   <li>대기열 인원이 10,000명 이상 폭증 시: 기본값의 3배(최대 2,000)로 추가 확장</li>
+     * </ul>
+     */
+    public int calculateAutoScaledLimit(Long policyId, long queueSize) {
+        int baseLimit = getEffectiveLimit(policyId);
+
+        if (queueSize >= 10000) {
+            return Math.min(2000, baseLimit * 3);
+        } else if (queueSize >= 5000) {
+            return Math.min(1000, baseLimit * 2);
+        }
+        return baseLimit;
+    }
 }

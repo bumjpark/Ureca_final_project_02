@@ -35,6 +35,7 @@ class QueueAdmissionSchedulerTest {
     @Mock private QueueLimitAdminService queueLimitAdminService;
     @Mock private StringRedisTemplate redisTemplate;
     @Mock private ValueOperations<String, String> valueOperations;
+    @Mock private org.springframework.data.redis.core.ZSetOperations<String, String> zSetOperations;
 
     @InjectMocks
     private QueueAdmissionScheduler scheduler;
@@ -57,9 +58,11 @@ class QueueAdmissionSchedulerTest {
         when(couponPolicyRepository.findByDeletedAtIsNull(any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(activePolicy)));
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
+        when(zSetOperations.zCard(RedisKeys.couponQueue(POLICY_ID))).thenReturn(100L);
         when(valueOperations.setIfAbsent(eq(RedisKeys.lockAdmission(POLICY_ID)), eq("locked"), eq(1L), eq(TimeUnit.SECONDS)))
                 .thenReturn(true);
-        when(queueLimitAdminService.getEffectiveLimit(POLICY_ID)).thenReturn(500); // 동적 Limit 500
+        when(queueLimitAdminService.calculateAutoScaledLimit(POLICY_ID, 100L)).thenReturn(500); // 동적 Limit 500
 
         scheduler.processQueueAdmission();
 
