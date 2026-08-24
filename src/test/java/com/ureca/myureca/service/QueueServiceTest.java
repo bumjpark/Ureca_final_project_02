@@ -90,7 +90,6 @@ class QueueServiceTest {
         when(couponPolicyCacheService.getPolicy(POLICY_ID)).thenReturn(openPolicy);
         when(redisTemplate.execute(eq(joinQueueScript), anyList(), anyString(), anyString()))
                 .thenReturn(List.of(201L, 0L, 0L));
-        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
 
         QueueJoinResponse response = queueService.joinQueue(new QueueJoinRequest(POLICY_ID, USER_ID));
 
@@ -253,12 +252,26 @@ class QueueServiceTest {
     }
 
     @Test
-    void 상태_조회시_대기열에_없는_유저는_CouponPolicyNotFoundException이_발생한다() {
+    void 상태_조회시_대기열에_없는_유저는_QueueNotRegisteredException이_발생한다() {
         when(couponPolicyCacheService.getPolicy(POLICY_ID)).thenReturn(openPolicy);
         when(redisTemplate.execute(eq(getQueueStatusScript), anyList(), anyString()))
                 .thenReturn(List.of("NOT_FOUND", "", "-1"));
 
         assertThatThrownBy(() -> queueService.getQueueStatus(POLICY_ID, USER_ID))
-                .isInstanceOf(CouponPolicyNotFoundException.class);
+                .isInstanceOf(com.ureca.myureca.exception.QueueNotRegisteredException.class);
+    }
+
+    @Test
+    void activeToken_저장_실패시_WAITING_fallback으로_안전하게_처리된다() {
+        when(couponPolicyCacheService.getPolicy(POLICY_ID)).thenReturn(openPolicy);
+        when(redisTemplate.execute(eq(joinQueueScript), anyList(), anyString(), anyString()))
+                .thenReturn(List.of(201L, 0L, 0L));
+        when(redisTemplate.executePipelined(any(org.springframework.data.redis.core.SessionCallback.class)))
+                .thenThrow(new RuntimeException("Redis 연결 실패"));
+
+        QueueJoinResponse response = queueService.joinQueue(new QueueJoinRequest(POLICY_ID, USER_ID));
+
+        assertThat(response.status()).isEqualTo(QueueStatus.WAITING);
+        assertThat(response.activeToken()).isNull();
     }
 }
