@@ -1,9 +1,11 @@
 package com.ureca.myureca.service;
 
 import com.ureca.myureca.dto.event.CouponIssuedEvent;
+import java.util.concurrent.CompletableFuture;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Component;
 
 @Slf4j
@@ -26,5 +28,13 @@ public class KafkaCouponEventProducer {
                                 event.policyId(), event.userId(), event.receiptId(), result.getRecordMetadata().offset());
                     }
                 });
+    }
+
+    /**
+     * 정합성 복구(수동 재처리)용 발행
+     */
+    public CompletableFuture<SendResult<String, Object>> publishCouponIssuedEventForRetry(CouponIssuedEvent event) {
+        String partitionKey = event.policyId() + "_" + event.userId();
+        return kafkaTemplate.send(TOPIC, partitionKey, event);
     }
 }

@@ -61,6 +61,36 @@ public class GlobalExceptionHandler {
                 .body(ErrorResponse.of(HttpStatus.BAD_REQUEST.value(), e.getMessage()));
     }
 
+    @ExceptionHandler(ReconciliationLogNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleReconciliationLogNotFound(ReconciliationLogNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ErrorResponse.of(HttpStatus.NOT_FOUND.value(), e.getMessage()));
+    }
+
+    @ExceptionHandler(ReconciliationTypeNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleReconciliationTypeNotSupported(
+            ReconciliationTypeNotSupportedException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ErrorResponse.of(HttpStatus.BAD_REQUEST.value(), e.getMessage()));
+    }
+
+    @ExceptionHandler(ReconciliationAlreadySucceededException.class)
+    public ResponseEntity<ErrorResponse> handleReconciliationAlreadySucceeded(
+            ReconciliationAlreadySucceededException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ErrorResponse.of(HttpStatus.CONFLICT.value(), e.getMessage()));
+    }
+
+    @ExceptionHandler(ReconciliationBulkDispatchException.class)
+    public ResponseEntity<ErrorResponse> handleReconciliationBulkDispatch(ReconciliationBulkDispatchException e) {
+        log.error("재처리 접수 중 일부 실패. 이미 접수된 로그={}", e.getDispatchedLogIds(), e);
+        List<String> errors = e.getDispatchedLogIds().stream()
+                .map(id -> "이미 접수됨(재실행 불필요): logId=" + id)
+                .toList();
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR.value(), e.getMessage(), errors));
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleValidationException(MethodArgumentNotValidException e) {
         List<String> errors = e.getBindingResult().getFieldErrors().stream()

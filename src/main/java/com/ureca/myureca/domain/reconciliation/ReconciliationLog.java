@@ -21,6 +21,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UpdateTimestamp;
 import org.hibernate.type.SqlTypes;
@@ -31,6 +32,7 @@ import org.hibernate.type.SqlTypes;
  * 재처리 큐 및 자가 치유 로그.
  */
 @Entity
+@DynamicUpdate
 @Table(
         name = "reconciliation_log",
         uniqueConstraints = @UniqueConstraint(name = "uk_reconciliation_event_key", columnNames = "event_key"),
