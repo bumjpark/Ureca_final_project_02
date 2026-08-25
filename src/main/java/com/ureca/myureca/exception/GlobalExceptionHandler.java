@@ -3,7 +3,9 @@ package com.ureca.myureca.exception;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -81,6 +83,12 @@ public class GlobalExceptionHandler {
                 .body(ErrorResponse.of(HttpStatus.CONFLICT.value(), e.getMessage()));
     }
 
+    @ExceptionHandler(VerificationNotAllowedException.class)
+    public ResponseEntity<ErrorResponse> handleVerificationNotAllowed(VerificationNotAllowedException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ErrorResponse.of(HttpStatus.CONFLICT.value(), e.getMessage()));
+    }
+
     @ExceptionHandler(ReconciliationBulkDispatchException.class)
     public ResponseEntity<ErrorResponse> handleReconciliationBulkDispatch(ReconciliationBulkDispatchException e) {
         log.error("재처리 접수 중 일부 실패. 이미 접수된 로그={}", e.getDispatchedLogIds(), e);
@@ -89,6 +97,37 @@ public class GlobalExceptionHandler {
                 .toList();
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR.value(), e.getMessage(), errors));
+    }
+
+    @ExceptionHandler(VerificationDispatchException.class)
+    public ResponseEntity<ErrorResponse> handleVerificationDispatch(VerificationDispatchException e) {
+        log.error("검증 배치 접수 중 일부 실패. 이미 접수된 정책={}", e.getDispatchedPolicyIds(), e);
+        List<String> errors = e.getDispatchedPolicyIds().stream()
+                .map(id -> "이미 접수됨(재실행 불필요): policyId=" + id)
+                .toList();
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR.value(), e.getMessage(), errors));
+    }
+
+    @ExceptionHandler(VerificationReportNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleVerificationReportNotFound(VerificationReportNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ErrorResponse.of(HttpStatus.NOT_FOUND.value(), e.getMessage()));
+    }
+
+    @ExceptionHandler(VerificationReportCsvNotAvailableException.class)
+    public ResponseEntity<ErrorResponse> handleVerificationReportCsvNotAvailable(
+            VerificationReportCsvNotAvailableException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ErrorResponse.of(HttpStatus.CONFLICT.value(), e.getMessage()));
+    }
+
+    @ExceptionHandler(VerificationReportFileMissingException.class)
+    public ResponseEntity<ErrorResponse> handleVerificationReportFileMissing(
+            VerificationReportFileMissingException e) {
+        log.error("검증 리포트 CSV 파일이 디스크에 없음(DB row는 존재). {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.GONE)
+                .body(ErrorResponse.of(HttpStatus.GONE.value(), e.getMessage()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -106,5 +145,33 @@ public class GlobalExceptionHandler {
 
     private String formatFieldError(FieldError fieldError) {
         return "%s: %s".formatted(fieldError.getField(), fieldError.getDefaultMessage());
+    }
+
+    /**
+     * 요청 본문을 못 읽는 경우(깨진 JSON, 인코딩 문제 등)
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponse> handleMessageNotReadable(HttpMessageNotReadableException e) {
+        return ResponseEntity.badRequest()
+                .body(ErrorResponse.of(HttpStatus.BAD_REQUEST.value(), "요청 본문을 읽을 수 없습니다."));
+    }
+
+    /** 지원하지 않는 HTTP 메서드로 호출한 경우 */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleMethodNotSupported(HttpRequestMethodNotSupportedException e) {
+        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
+                .body(ErrorResponse.of(HttpStatus.METHOD_NOT_ALLOWED.value(), e.getMessage()));
+    }
+
+    /**
+     * 위에서 못 잡은 예상 못한 예외(Redis/DB 장애, NPE 등)
+     */
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ErrorResponse> handleUnexpected(Exception e) {
+        log.error("처리되지 않은 예외 발생", e);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ErrorResponse.of(
+                        HttpStatus.INTERNAL_SERVER_ERROR.value(),
+                        "일시적인 오류가 발생했습니다. 잠시 후 다시 시도해주세요."));
     }
 }
