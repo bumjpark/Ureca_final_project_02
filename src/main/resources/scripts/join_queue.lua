@@ -49,10 +49,18 @@ if existingScore ~= false then
     return {200, rank, totalInQueue}
 end
 
--- 6. 대기열 정원 초과 Fast-Fail
+-- 6. 희망고문 방지: 남은 재고 기반 대기열 수용 정원 동적 계산 (Fast-Fail)
+-- 이탈률을 감안한 1.1배(10% 버퍼) 적용
+local stockNum = tonumber(stock)
+local dynamicMaxCap = math.floor(stockNum * 1.1)
+local maxCap = tonumber(ARGV[2])
+if dynamicMaxCap < maxCap then
+    maxCap = dynamicMaxCap
+end
+
 local queueSize = redis.call('ZCARD', KEYS[4])
-if queueSize >= tonumber(ARGV[2]) then
-    return {503, -1, -1}
+if queueSize >= maxCap then
+    return {400, -1, -1} -- 남은 재고 대비 수용 한도 초과 -> 즉시 SOLD_OUT Fast-Fail!
 end
 
 -- 7. 대기열 ZSET에 순차 번호표(seq) 발급 및 등록
