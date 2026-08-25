@@ -55,15 +55,7 @@ if queueSize >= tonumber(ARGV[2]) then
     return {503, -1, -1}
 end
 
--- 7. 즉시 입장 vs 대기열 등록 분기
--- 대기열이 비어있는 경우: ZSET에 유령 등록하지 않고 즉시 통과 (201 ADMITTED)
-if queueSize == 0 then
-    redis.call('EXPIRE', KEYS[4], 86400)
-    redis.call('EXPIRE', KEYS[5], 86400)
-    return {201, 0, 0}
-end
-
--- 대기열에 이미 대기자가 있는 경우: ZSET에 순차 등록 후 WAITING 반환
+-- 7. 대기열 ZSET에 순차 번호표(seq) 발급 및 등록
 local seq = redis.call('INCR', KEYS[5])
 redis.call('ZADD', KEYS[4], seq, ARGV[1])
 local rank = redis.call('ZRANK', KEYS[4], ARGV[1])
@@ -73,3 +65,4 @@ redis.call('EXPIRE', KEYS[4], 86400)
 redis.call('EXPIRE', KEYS[5], 86400)
 
 return {200, rank, totalInQueue}
+
