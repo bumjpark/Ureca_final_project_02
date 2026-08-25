@@ -37,6 +37,8 @@ public class KafkaCouponEventProducer {
     public CompletableFuture<SendResult<String, Object>> publishCouponIssuedEventForRetry(CouponIssuedEvent event) {
         String partitionKey = event.policyId() + "_" + event.userId();
         return kafkaTemplate.send(TOPIC, partitionKey, event);
+    }
+
     public void publishQueueJoinEvent(com.ureca.myureca.dto.event.QueueJoinEvent event) {
         // 동일 정책+유저는 같은 파티션으로 전송되어 선착순 순서 영속화
         String partitionKey = event.policyId() + "_" + event.userId();

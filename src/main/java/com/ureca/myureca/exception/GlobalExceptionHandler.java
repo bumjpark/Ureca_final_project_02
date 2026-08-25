@@ -9,6 +9,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -136,6 +137,8 @@ public class GlobalExceptionHandler {
         log.error("검증 리포트 CSV 파일이 디스크에 없음(DB row는 존재). {}", e.getMessage());
         return ResponseEntity.status(HttpStatus.GONE)
                 .body(ErrorResponse.of(HttpStatus.GONE.value(), e.getMessage()));
+    }
+
     @ExceptionHandler(QueueFullException.class)
     public ResponseEntity<ErrorResponse> handleQueueFull(QueueFullException e) {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
@@ -176,6 +179,16 @@ public class GlobalExceptionHandler {
 
     private String formatFieldError(FieldError fieldError) {
         return "%s: %s".formatted(fieldError.getField(), fieldError.getDefaultMessage());
+    }
+
+    /**
+     * 필수 요청 파라미터(@RequestParam) 누락
+     */
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ErrorResponse> handleMissingParameter(MissingServletRequestParameterException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ErrorResponse.of(HttpStatus.BAD_REQUEST.value(),
+                        "필수 파라미터가 누락되었습니다: " + e.getParameterName()));
     }
 
     /**

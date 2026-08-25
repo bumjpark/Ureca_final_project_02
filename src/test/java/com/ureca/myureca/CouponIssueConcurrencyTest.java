@@ -66,7 +66,7 @@ class CouponIssueConcurrencyTest {
         String[] tokens = new String[threadCount];
         for (int i = 0; i < threadCount; i++) {
             tokens[i] = "token-user-" + i + "-" + UUID.randomUUID();
-            redisTemplate.opsForValue().set(RedisKeys.activeToken(tokens[i]), "true");
+            redisTemplate.opsForValue().set(RedisKeys.activeToken(tokens[i]), String.valueOf(userId));
         }
 
         ExecutorService executorService = Executors.newFixedThreadPool(32);
