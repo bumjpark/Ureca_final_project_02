@@ -3,12 +3,15 @@ package com.ureca.myureca.service;
 import com.ureca.myureca.domain.reconciliation.ReconciliationLog;
 import com.ureca.myureca.domain.reconciliation.ReconciliationStatus;
 import com.ureca.myureca.domain.reconciliation.ReconciliationType;
+import com.ureca.myureca.dto.response.PageResponse;
 import com.ureca.myureca.dto.response.ReconciliationLogResponse;
 import com.ureca.myureca.exception.ReconciliationBulkDispatchException;
 import com.ureca.myureca.repository.ReconciliationLogRepository;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +28,24 @@ public class ReconciliationService {
 
     private final ReconciliationLogRepository reconciliationLogRepository;
     private final ReconciliationRetryTrigger reconciliationRetryTrigger;
+
+    /** 재처리 이력 목록 조회. type/status 둘 다 선택 필터이며, 최신 로그가 먼저 오도록 정렬은 고정한다. */
+    @Transactional(readOnly = true)
+    public PageResponse<ReconciliationLogResponse> getReconciliationLogs(
+            ReconciliationType type, ReconciliationStatus status, Pageable pageable
+    ) {
+        Page<ReconciliationLog> page;
+        if (type != null && status != null) {
+            page = reconciliationLogRepository.findByTypeAndStatusOrderByCreatedAtDesc(type, status, pageable);
+        } else if (type != null) {
+            page = reconciliationLogRepository.findByTypeOrderByCreatedAtDesc(type, pageable);
+        } else if (status != null) {
+            page = reconciliationLogRepository.findByStatusOrderByCreatedAtDesc(status, pageable);
+        } else {
+            page = reconciliationLogRepository.findAllByOrderByCreatedAtDesc(pageable);
+        }
+        return PageResponse.from(page.map(ReconciliationLogResponse::from));
+    }
 
     public ReconciliationLogResponse retryOne(Long logId) {
         // 조회부터 변경까지 전부 ReconciliationRetryTrigger.dispatch() 안의 한 트랜잭션에서

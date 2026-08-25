@@ -6,13 +6,14 @@ import com.ureca.myureca.domain.reconciliation.ReconciliationType;
 import java.time.LocalDateTime;
 
 /**
- * POST /api/admin/reconciliation/retry 응답
+ * POST /api/admin/reconciliation/retry, GET /api/admin/reconciliation/logs 응답
  */
 public record ReconciliationLogResponse(
         Long id,
         ReconciliationType type,
         ReconciliationStatus status,
         String eventKey,
+        Long couponIssueId,
         String topic,
         Integer retryCount,
         String failReason,
@@ -26,6 +27,7 @@ public record ReconciliationLogResponse(
                 log.getType(),
                 log.getStatus(),
                 log.getEventKey(),
+                log.getCouponIssue() != null ? log.getCouponIssue().getId() : null,
                 log.getTopic(),
                 log.getRetryCount(),
                 log.getFailReason(),
