@@ -107,10 +107,17 @@ public class VerificationService {
                 .orElseThrow(() -> new VerificationReportNotFoundException(id));
     }
 
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    /** 기존 호출부(테스트 등) 호환용 — force 없이 호출하면 접근 조건을 그대로 강제한다. */
     public List<VerificationReportResponse> runVerification(Long policyId) {
+        return runVerification(policyId, false);
+    }
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public List<VerificationReportResponse> runVerification(Long policyId, boolean force) {
         List<CouponPolicy> allPolicies = couponPolicyRepository.findByDeletedAtIsNull();
-        validateNoPolicyHasRemainingStock(allPolicies);
+        if (!force) {
+            validateNoPolicyHasRemainingStock(allPolicies);
+        }
 
         List<CouponPolicy> targets = (policyId != null)
                 ? List.of(findAmong(allPolicies, policyId))
@@ -151,13 +158,16 @@ public class VerificationService {
         return VerificationReportResponse.from(pending);
     }
 
-    /** 접근 조건: 전체 정책 중 재고가 남아있는 정책이 하나라도 있으면 실행 자체를 거부한다. */
+    /**
+     * 접근 조건: 재고가 남아있는 정책이 하나라도 있으면 실행을 막는 게 아니라 확인을 요구한다.
+     * force=true로 재호출하면 이 확인을 건너뛰고 그대로 진행한다(성능·정합성 리스크는 호출자 책임).
+     */
     private void validateNoPolicyHasRemainingStock(List<CouponPolicy> policies) {
         for (CouponPolicy policy : policies) {
             if (currentStock(policy.getId()) > 0) {
                 throw new VerificationNotAllowedException(
-                        "재고가 남아있는 정책(id=" + policy.getId()
-                                + ")이 있어 검증 배치를 실행할 수 없습니다. 모든 정책의 재고가 소진된 뒤 실행해주세요.");
+                        "아직 쿠폰 발급이 진행중인 이벤트가 있습니다. "
+                                + "검증 실행 시 성능 및 정합성 문제가 발생할 수 있습니다. 그래도 진행하시겠습니까?");
             }
         }
     }

@@ -30,12 +30,15 @@ public class VerificationController {
 
     /**
      * 정합성 검증 배치 수동 실행 (비동기).
+     * 재고가 남아있는 정책이 있으면 409로 확인 메시지를 반환한다 — 그래도 실행하려면
+     * force=true로 재호출한다(성능·정합성 저하 가능성을 감수한다는 의미).
      */
     @PostMapping("/run")
     public ResponseEntity<List<VerificationReportResponse>> run(
-            @RequestParam(required = false) Long policyId
+            @RequestParam(required = false) Long policyId,
+            @RequestParam(defaultValue = "false") boolean force
     ) {
-        List<VerificationReportResponse> responses = verificationService.runVerification(policyId);
+        List<VerificationReportResponse> responses = verificationService.runVerification(policyId, force);
         return ResponseEntity.accepted().body(responses);
     }
 
