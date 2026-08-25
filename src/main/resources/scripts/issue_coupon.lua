@@ -22,10 +22,16 @@ if not stock or tonumber(stock) <= 0 then
     return 400
 end
 
--- 3. 재고 1 차감
-redis.call('DECR', KEYS[1])
+-- 3. 재고 원자적 차감 후 음수 방어 롤백
+--    Lua는 단일 스레드로 원자적 실행되지만, 외부 CLI 등 비정상 경로로
+--    stock 이 직접 조작될 경우를 대비해 DECR 후 음수이면 즉시 INCR 원복.
+local remaining = redis.call('DECR', KEYS[1])
+if remaining < 0 then
+    redis.call('INCR', KEYS[1])
+    return 400
+end
 
 -- 4. RESERVED ZSET에 임시 예약 등록
 redis.call('ZADD', KEYS[2], ARGV[2], ARGV[1])
 
-return 200
+return 200

@@ -1,5 +1,7 @@
 package com.ureca.myureca.exception;
 
+import com.ureca.myureca.exception.CouponNotOpenedException;
+import com.ureca.myureca.exception.QueueFullException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -53,6 +55,12 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(CouponPolicyNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleCouponPolicyNotFound(CouponPolicyNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ErrorResponse.of(HttpStatus.NOT_FOUND.value(), e.getMessage()));
+    }
+
+    @ExceptionHandler(QueueNotRegisteredException.class)
+    public ResponseEntity<ErrorResponse> handleQueueNotRegistered(QueueNotRegisteredException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(ErrorResponse.of(HttpStatus.NOT_FOUND.value(), e.getMessage()));
     }
@@ -128,6 +136,29 @@ public class GlobalExceptionHandler {
         log.error("검증 리포트 CSV 파일이 디스크에 없음(DB row는 존재). {}", e.getMessage());
         return ResponseEntity.status(HttpStatus.GONE)
                 .body(ErrorResponse.of(HttpStatus.GONE.value(), e.getMessage()));
+    @ExceptionHandler(QueueFullException.class)
+    public ResponseEntity<ErrorResponse> handleQueueFull(QueueFullException e) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(ErrorResponse.of(HttpStatus.SERVICE_UNAVAILABLE.value(), e.getMessage()));
+    }
+
+    @ExceptionHandler(TooManyRequestsException.class)
+    public ResponseEntity<ErrorResponse> handleTooManyRequests(TooManyRequestsException e) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .body(ErrorResponse.of(HttpStatus.TOO_MANY_REQUESTS.value(), e.getMessage()));
+    }
+
+    /**
+     * 쿠폰 오픈 전/종료 후 접근.
+     * 오픈 전인 경우 openAt(오픈 예정 시각)을 errors 필드에 포함 — FR-10 요구사항.
+     */
+    @ExceptionHandler(CouponNotOpenedException.class)
+    public ResponseEntity<ErrorResponse> handleCouponNotOpened(CouponNotOpenedException e) {
+        List<String> details = e.getOpenAt() != null
+                ? List.of("openAt: " + e.getOpenAt())
+                : null;
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ErrorResponse.of(HttpStatus.BAD_REQUEST.value(), e.getMessage(), details));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
