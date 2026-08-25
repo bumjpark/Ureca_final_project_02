@@ -24,6 +24,11 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
+      lettuce:
+        pool:
+          max-active: 200
+          max-idle: 100
+          min-idle: 20
 
   # ---------- Kafka ----------
   kafka:
@@ -39,6 +44,13 @@ spring:
 
 server:
   port: ${SERVER_PORT:8080}
+  tomcat:
+    threads:
+      max: 1000          # 동시 처리 스레드 수 1000개로 상향
+      min-spare: 100     # 대기 스레드 100개 유지
+    max-connections: 30000   # 동시 TCP 연결 30000개 수용
+    accept-count: 10000      # 대기 큐 크기 10000개로 확장 (타임아웃 방어)
+    connection-timeout: 20000
 
 # ---------- Coupon Queue Settings ----------
 coupon:
