@@ -39,4 +39,13 @@ public interface CouponIssueRepository extends JpaRepository<CouponIssue, Long> 
     @EntityGraph(attributePaths = "couponPolicy")
     Page<CouponIssue> findByUserIdAndCouponPolicyIdAndStatus(
             Long userId, Long couponPolicyId, IssueStatus status, Pageable pageable);
+
+    // ---- Redis 재구성(완전 유실 복구, E) 전용 조회 ----
+    // 유저 id 목록은 위의 findUserIdsByCouponPolicyId를 그대로 재사용한다
+    // (coupon_policy_id, user_id 유니크 제약 덕분에 중복이 애초에 안 생겨서 distinct 불필요).
+    // 예전엔 Kafka 이벤트를 직접 재처리하는 로직도 여기서 중복 방지용 조회를 썼지만,
+    // 상시 Consumer가 그 역할을 전담하는 쪽으로 재설계되면서 더 이상 필요 없어져 제거했다.
+
+    /** 정책별 발급 완료 건수. Redis stock 재계산(totalQuantity - 이 값)에 사용. */
+    long countByCouponPolicyId(Long couponPolicyId);
 }
