@@ -60,6 +60,12 @@ public class GlobalExceptionHandler {
                 .body(ErrorResponse.of(HttpStatus.NOT_FOUND.value(), e.getMessage()));
     }
 
+    @ExceptionHandler(CouponIssueNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleCouponIssueNotFound(CouponIssueNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ErrorResponse.of(HttpStatus.NOT_FOUND.value(), e.getMessage()));
+    }
+
     @ExceptionHandler(QueueNotRegisteredException.class)
     public ResponseEntity<ErrorResponse> handleQueueNotRegistered(QueueNotRegisteredException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
