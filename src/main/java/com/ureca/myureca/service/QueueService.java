@@ -106,6 +106,7 @@ public class QueueService {
 
         long statusCode = result.get(0);
         long rank = result.get(1);
+        long seq = result.size() > 3 ? result.get(3) : (rank + 1);
 
         if (LUA_DUPLICATED == statusCode) {
             throw new CouponDuplicatedException("이미 발급받았거나 처리 중인 쿠폰입니다.");
@@ -138,6 +139,7 @@ public class QueueService {
                             userId,
                             response.status(),
                             response.rank(),
+                            seq,
                             LocalDateTime.now()
                     )
             );
