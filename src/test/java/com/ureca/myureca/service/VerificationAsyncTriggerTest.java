@@ -16,6 +16,7 @@ import com.ureca.myureca.repository.CouponHistoryRepository;
 import com.ureca.myureca.repository.CouponHistoryStatusSnapshot;
 import com.ureca.myureca.repository.CouponIssueLifecycleSnapshot;
 import com.ureca.myureca.repository.CouponIssueRepository;
+import com.ureca.myureca.repository.QueueJoinLogRepository;
 import com.ureca.myureca.repository.VerificationReportRepository;
 import com.ureca.myureca.service.VerificationAsyncTrigger.LifecycleAnomaly;
 import com.ureca.myureca.service.VerificationAsyncTrigger.MismatchFindings;
@@ -65,6 +66,9 @@ class VerificationAsyncTriggerTest {
     @Mock
     private VerificationAsyncTrigger.MismatchReportWriter mismatchReportWriter;
 
+    @Mock
+    private QueueJoinLogRepository queueJoinLogRepository;
+
     private VerificationAsyncTrigger asyncTrigger;
 
     @BeforeEach
@@ -77,10 +81,15 @@ class VerificationAsyncTriggerTest {
                 .when(couponIssueRepository.findLifecycleSnapshotsByCouponPolicyId(any())).thenReturn(List.of());
         org.mockito.Mockito.lenient()
                 .when(couponHistoryRepository.findStatusSnapshotsByCouponPolicyId(any())).thenReturn(List.of());
+        // queue_join_log가 비어있다고 가정(컨슈머 미구현) — 대부분의 기존 테스트는 FCFS 체크와 무관하므로
+        // 기본(구간 적재분=0 < liveN)으로 건너뛴다. FCFS 체크 자체를 검증하는 테스트는 개별적으로 덮어쓴다.
+        org.mockito.Mockito.lenient()
+                .when(queueJoinLogRepository.countByCouponPolicyIdAndQueueRankLessThanEqual(any(), any()))
+                .thenReturn(0L);
 
         asyncTrigger = new VerificationAsyncTrigger(
                 couponIssueRepository, verificationReportRepository, redisTemplate, mismatchReportWriter,
-                couponHistoryRepository
+                couponHistoryRepository, queueJoinLogRepository
         );
     }
 
@@ -120,6 +129,69 @@ class VerificationAsyncTriggerTest {
     }
 
     @Test
+    void queue_join_log가_비어있으면_FCFS_체크를_건너뛰고_오탐하지_않는다() {
+        CouponPolicy policy = policy(1L, 10000);
+        VerificationReport report = pendingReport(policy);
+        when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
+        when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(100L, 200L, 300L));
+        when(setOperations.members(any())).thenReturn(Set.of("100", "200", "300"));
+        when(zSetOperations.size(any())).thenReturn(0L);
+        when(valueOperations.get(any())).thenReturn("9997");
+        // 구간 [1,3] 적재분=0(기본값) < liveN(3) — queue-join-events 컨슈머 미가동 상황을 시뮬레이션
+
+        asyncTrigger.performVerification(1L);
+
+        assertThat(report.getStatus()).isEqualTo(VerificationStatus.SUCCESS);
+        assertThat(report.getMismatchCount()).isZero();
+        verify(queueJoinLogRepository, never()).findUserIdsOrderByQueueRankAsc(any(), any());
+        verify(mismatchReportWriter, never()).write(any(), any(), any());
+    }
+
+    @Test
+    void 순번_구간이_liveN만큼_안_찼으면_캐치업_중으로_보고_FCFS_체크를_건너뛴다() {
+        CouponPolicy policy = policy(1L, 10000);
+        VerificationReport report = pendingReport(policy);
+        when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
+        when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(100L, 200L, 300L));
+        when(setOperations.members(any())).thenReturn(Set.of("100", "200", "300"));
+        when(zSetOperations.size(any())).thenReturn(0L);
+        when(valueOperations.get(any())).thenReturn("9997");
+        // (rank<=liveN) 확인
+        when(queueJoinLogRepository.countByCouponPolicyIdAndQueueRankLessThanEqual(1L, 3L)).thenReturn(2L);
+
+        asyncTrigger.performVerification(1L);
+
+        assertThat(report.getStatus()).isEqualTo(VerificationStatus.SUCCESS);
+        assertThat(report.getMismatchCount()).isZero();
+        verify(queueJoinLogRepository, never()).findUserIdsOrderByQueueRankAsc(any(), any());
+    }
+
+    @Test
+    void 도착순위_밖에서_발급됐으면_FCFS_MISMATCH_FOUND이고_CSV에_반영된다() {
+        CouponPolicy policy = policy(1L, 10000);
+        VerificationReport report = pendingReport(policy);
+        when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
+        // DB 발급자는 100,200,999 인데
+        when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(100L, 200L, 999L));
+        when(setOperations.members(any())).thenReturn(Set.of("100", "200", "999"));
+        when(zSetOperations.size(any())).thenReturn(0L);
+        when(valueOperations.get(any())).thenReturn("9997");
+        // 대기열 도착순 상위 3명(liveN=min(3,10000)=3)은 100,200,300 이었다 -> 999는 순번 밖, 300은 도착순인데 못 받음
+        when(queueJoinLogRepository.countByCouponPolicyIdAndQueueRankLessThanEqual(1L, 3L)).thenReturn(3L); // 구간 [1,3] 완전 적재
+        when(queueJoinLogRepository.findUserIdsOrderByQueueRankAsc(eq(1L), eq(org.springframework.data.domain.PageRequest.of(0, 3))))
+                .thenReturn(List.of(100L, 200L, 300L));
+        when(mismatchReportWriter.write(any(), any(), any())).thenReturn(Path.of("reports", "fcfs.csv"));
+
+        asyncTrigger.performVerification(1L);
+
+        assertThat(report.getStatus()).isEqualTo(VerificationStatus.MISMATCH_FOUND);
+        assertThat(report.getMismatchCount()).isEqualTo(2); // (300 못받음, 999 잘못받음) 쌍
+        verify(mismatchReportWriter).write(eq(1L), any(),
+                eq(new MismatchFindings(Set.of(100L, 200L, 999L), Set.of(100L, 200L, 999L), 0, 0, List.of(),
+                        Set.of(100L, 200L, 300L))));
+    }
+
+    @Test
     void Redis에만_있는_유저가_있으면_MISMATCH_FOUND이고_CSV를_생성한다() {
         CouponPolicy policy = policy(1L, 10000);
         VerificationReport report = pendingReport(policy);
@@ -138,7 +210,7 @@ class VerificationAsyncTriggerTest {
         assertThat(report.getReportUrl()).isEqualTo(expectedCsvPath.toString());
         verify(mismatchReportWriter).write(
                 eq(1L), any(),
-                eq(new MismatchFindings(Set.of(100L, 200L), Set.of(100L, 200L, 999L), 0, 0, List.of())));
+                eq(new MismatchFindings(Set.of(100L, 200L), Set.of(100L, 200L, 999L), 0, 0, List.of(), Set.of())));
     }
 
     @Test
@@ -194,7 +266,7 @@ class VerificationAsyncTriggerTest {
         assertThat(report.getMismatchCount()).isEqualTo(1); // 초과분 1건 (누수는 음수라 0건)
         assertThat(report.getReportUrl()).isNotNull();
         verify(mismatchReportWriter).write(eq(1L), any(),
-                eq(new MismatchFindings(Set.of(100L, 200L, 300L), Set.of(100L, 200L, 300L), 1, 0, List.of())));
+                eq(new MismatchFindings(Set.of(100L, 200L, 300L), Set.of(100L, 200L, 300L), 1, 0, List.of(), Set.of())));
     }
 
     @Test
@@ -216,7 +288,7 @@ class VerificationAsyncTriggerTest {
         assertThat(report.getMismatchCount()).isEqualTo(3);
         verify(mismatchReportWriter).write(eq(1L), any(),
                 eq(new MismatchFindings(Set.of(1L, 2L, 3L, 4L, 5L, 6L), Set.of(1L, 2L, 3L, 4L, 5L, 6L), 0, 3,
-                        List.of())));
+                        List.of(), Set.of())));
     }
 
     @Test
@@ -256,7 +328,7 @@ class VerificationAsyncTriggerTest {
         assertThat(report.getMismatchCount()).isEqualTo(1);
         verify(mismatchReportWriter).write(eq(1L), any(),
                 eq(new MismatchFindings(Set.of(100L), Set.of(100L), 0, 0,
-                        List.of(new LifecycleAnomaly(10L, 100L, "HISTORY_MISMATCH")))));
+                        List.of(new LifecycleAnomaly(10L, 100L, "HISTORY_MISMATCH")), Set.of())));
     }
 
     @Test
@@ -277,7 +349,7 @@ class VerificationAsyncTriggerTest {
         assertThat(report.getMismatchCount()).isEqualTo(1);
         verify(mismatchReportWriter).write(eq(1L), any(),
                 eq(new MismatchFindings(Set.of(100L), Set.of(100L), 0, 0,
-                        List.of(new LifecycleAnomaly(10L, 100L, "MISSING_HISTORY")))));
+                        List.of(new LifecycleAnomaly(10L, 100L, "MISSING_HISTORY")), Set.of())));
     }
 
     @Test
@@ -297,7 +369,7 @@ class VerificationAsyncTriggerTest {
         assertThat(report.getMismatchCount()).isEqualTo(1);
         verify(mismatchReportWriter).write(eq(1L), any(),
                 eq(new MismatchFindings(Set.of(100L), Set.of(100L), 0, 0,
-                        List.of(new LifecycleAnomaly(10L, 100L, "MISSING_HISTORY")))));
+                        List.of(new LifecycleAnomaly(10L, 100L, "MISSING_HISTORY")), Set.of())));
     }
 
     @Test
