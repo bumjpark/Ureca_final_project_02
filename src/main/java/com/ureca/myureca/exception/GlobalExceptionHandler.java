@@ -55,6 +55,12 @@ public class GlobalExceptionHandler {
                 .body(ErrorResponse.of(HttpStatus.NOT_FOUND.value(), e.getMessage()));
     }
 
+    @ExceptionHandler(CouponIssueNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleCouponIssueNotFound(CouponIssueNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ErrorResponse.of(HttpStatus.NOT_FOUND.value(), e.getMessage()));
+    }
+
     @ExceptionHandler(InvalidCouponPolicyException.class)
     public ResponseEntity<ErrorResponse> handleInvalidCouponPolicyException(InvalidCouponPolicyException e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
