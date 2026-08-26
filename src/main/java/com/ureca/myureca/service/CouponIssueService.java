@@ -17,8 +17,12 @@ public class CouponIssueService {
     private final ActiveTokenService activeTokenService;
 
     public CouponIssueResponse issueCoupon(Long policyId, Long userId, String activeToken) {
-        // 1. 대기열 토큰 검증
-        if (!activeTokenService.consume(activeToken)) {
+        // 1. 대기열 토큰 검증 (소유자 userId 포함 원자적 소비 및 활성 유저 키 정리)
+        ActiveTokenService.ConsumeResult tokenResult = activeTokenService.consume(activeToken, policyId, userId);
+        if (tokenResult == ActiveTokenService.ConsumeResult.USER_MISMATCH) {
+            throw new InvalidTokenException("토큰 소유자가 일치하지 않습니다.");
+        }
+        if (tokenResult != ActiveTokenService.ConsumeResult.OK) {
             throw new InvalidTokenException("유효하지 않거나 만료된 대기열 토큰입니다.");
         }
 

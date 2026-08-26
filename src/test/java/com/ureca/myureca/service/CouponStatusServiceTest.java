@@ -52,7 +52,7 @@ class CouponStatusServiceTest {
     @Test
     void 정상_상황에서는_발급완료_잔여수량_발급률이_올바르게_계산된다() throws Exception {
         CouponPolicy policy = policyWithTotalQuantity(10000);
-        when(couponPolicyRepository.findById(POLICY_ID)).thenReturn(Optional.of(policy));
+        when(couponPolicyRepository.findByIdAndDeletedAtIsNull(POLICY_ID)).thenReturn(Optional.of(policy));
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.get("coupon:policy:" + POLICY_ID + ":stock")).thenReturn("3214");
 
@@ -67,7 +67,7 @@ class CouponStatusServiceTest {
     @Test
     void Redis에_재고_키가_없으면_전량_미발급으로_방어한다() throws Exception {
         CouponPolicy policy = policyWithTotalQuantity(10000);
-        when(couponPolicyRepository.findById(POLICY_ID)).thenReturn(Optional.of(policy));
+        when(couponPolicyRepository.findByIdAndDeletedAtIsNull(POLICY_ID)).thenReturn(Optional.of(policy));
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.get("coupon:policy:" + POLICY_ID + ":stock")).thenReturn(null);
 
@@ -81,7 +81,7 @@ class CouponStatusServiceTest {
     @Test
     void 재고가_음수여도_화면에는_0으로_방어된다() throws Exception {
         CouponPolicy policy = policyWithTotalQuantity(10000);
-        when(couponPolicyRepository.findById(POLICY_ID)).thenReturn(Optional.of(policy));
+        when(couponPolicyRepository.findByIdAndDeletedAtIsNull(POLICY_ID)).thenReturn(Optional.of(policy));
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         // Lua의 Fast-Fail이 정상 동작한다면 나올 수 없는 값이지만, 방어로직 자체를 검증
         when(valueOperations.get("coupon:policy:" + POLICY_ID + ":stock")).thenReturn("-5");
@@ -94,7 +94,7 @@ class CouponStatusServiceTest {
 
     @Test
     void 존재하지_않는_정책이면_예외가_발생한다() {
-        when(couponPolicyRepository.findById(POLICY_ID)).thenReturn(Optional.empty());
+        when(couponPolicyRepository.findByIdAndDeletedAtIsNull(POLICY_ID)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> couponStatusService.getCouponStatus(POLICY_ID))
                 .isInstanceOf(CouponPolicyNotFoundException.class);

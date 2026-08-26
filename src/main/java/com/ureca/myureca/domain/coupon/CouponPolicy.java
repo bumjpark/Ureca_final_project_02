@@ -92,6 +92,23 @@ public class CouponPolicy {
         this.issuedQuantity = issuedQuantity;
     }
 
+    /** 정책 오픈 전 수정에 사용한다. */
+    public void update(
+            String title,
+            CouponType couponType,
+            Integer discountValue,
+            Integer totalQuantity,
+            LocalDateTime openAt,
+            LocalDateTime closeAt
+    ) {
+        this.title = title;
+        this.couponType = couponType;
+        this.discountValue = discountValue;
+        this.totalQuantity = totalQuantity;
+        this.openAt = openAt;
+        this.closeAt = closeAt;
+    }
+
     /** Redis 삭제가 선행된 이후 호출되는 소프트 삭제. */
     public void softDelete() {
         this.deletedAt = LocalDateTime.now();
