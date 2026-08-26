@@ -8,6 +8,7 @@ import com.ureca.myureca.repository.CouponHistoryRepository;
 import com.ureca.myureca.repository.CouponHistoryStatusSnapshot;
 import com.ureca.myureca.repository.CouponIssueLifecycleSnapshot;
 import com.ureca.myureca.repository.CouponIssueRepository;
+import com.ureca.myureca.repository.QueueJoinLogRepository;
 import com.ureca.myureca.repository.VerificationReportRepository;
 import com.ureca.myureca.support.RedisKeys;
 import java.io.IOException;
@@ -25,6 +26,7 @@ import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
@@ -43,6 +45,7 @@ public class VerificationAsyncTrigger {
     private final StringRedisTemplate redisTemplate;
     private final MismatchReportWriter mismatchReportWriter;
     private final CouponHistoryRepository couponHistoryRepository;
+    private final QueueJoinLogRepository queueJoinLogRepository;
 
     @Async("verificationTaskExecutor")
     @Transactional
@@ -112,18 +115,41 @@ public class VerificationAsyncTrigger {
         List<LifecycleAnomaly> lifecycleAnomalies =
                 detectLifecycleAnomalies(policyId, lifecycleSnapshots, latestHistoryStatusByIssueId);
 
-        int mismatchCount = diffMismatchCount + overIssuedCount + stockLeakCount + lifecycleAnomalies.size();
+        // Check C: 선착순(FCFS) 순서 검증 — "대기열 도착 순서 상위 N명"과 "실제 DB 발급자 집합"을 비교
+        int liveN = Math.min(dbUserIds.size(), policy.getTotalQuantity());
+        long coveredCount = queueJoinLogRepository.countByCouponPolicyIdAndQueueRankLessThanEqual(
+                policyId, (long) liveN);
+        Set<Long> expectedTopN;
+        int fcfsMismatchCount;
+        if (coveredCount < liveN) {
+            log.warn("정책 id={} queue_join_log의 순번 구간 [1,{}] 적재분({}건)이 아직 채워지지 않아 "
+                    + "선착순(FCFS) 검증을 건너뜁니다 (queue-join-events 컨슈머 미가동 또는 캐치업 중으로 추정).",
+                    policyId, liveN, coveredCount);
+            expectedTopN = Set.of();
+            fcfsMismatchCount = 0;
+        } else {
+            expectedTopN = fetchExpectedTopN(policyId, liveN);
+            fcfsMismatchCount = countMismatch(dbUserIds, expectedTopN);
+        }
+
+        int mismatchCount =
+                diffMismatchCount + overIssuedCount + stockLeakCount + lifecycleAnomalies.size() + fcfsMismatchCount;
         VerificationStatus status = (mismatchCount == 0) ? VerificationStatus.SUCCESS : VerificationStatus.MISMATCH_FOUND;
 
         if (totalReserved > 0) {
             log.warn("정책 id={} 검증 시점에 RESERVED가 {}건 남아있음 — 마감 전이거나 미아 예약 의심",
                     policyId, totalReserved);
         }
+        if (fcfsMismatchCount > 0) {
+            log.error("🚨 정책 id={} 선착순(FCFS) 위반 의심: {}쌍 (도착순 상위 N명 ↔ 실제 발급자 불일치)",
+                    policyId, fcfsMismatchCount);
+        }
 
         Path csvPath = null;
-        if (diffMismatchCount > 0 || overIssuedCount > 0 || stockLeakCount > 0 || !lifecycleAnomalies.isEmpty()) {
+        if (diffMismatchCount > 0 || overIssuedCount > 0 || stockLeakCount > 0
+                || !lifecycleAnomalies.isEmpty() || fcfsMismatchCount > 0) {
             MismatchFindings findings = new MismatchFindings(
-                    dbUserIds, redisUserIds, overIssuedCount, stockLeakCount, lifecycleAnomalies);
+                    dbUserIds, redisUserIds, overIssuedCount, stockLeakCount, lifecycleAnomalies, expectedTopN);
             csvPath = mismatchReportWriter.write(policyId, runAt, findings);
         }
 
@@ -212,6 +238,18 @@ public class VerificationAsyncTrigger {
     }
 
     /**
+     * Check C: 선착순(FCFS) 검증용 — 대기열 순번(queue_rank=seq) 상위 N명. 호출부가 liveN을
+     * totalQuantity로 이미 클램프하고 적재량도 확인한 뒤에만 부른다(performVerification() 참고).
+     */
+    private Set<Long> fetchExpectedTopN(Long policyId, int liveN) {
+        if (liveN <= 0) {
+            return Set.of();
+        }
+        return new HashSet<>(queueJoinLogRepository.findUserIdsOrderByQueueRankAsc(
+                policyId, PageRequest.of(0, liveN)));
+    }
+
+    /**
      * Check B: 생명주기 불일치.
      */
     private List<LifecycleAnomaly> detectLifecycleAnomalies(
@@ -250,7 +288,9 @@ public class VerificationAsyncTrigger {
             Set<Long> redisUserIds,
             int overIssuedCount,
             int stockLeakCount,
-            List<LifecycleAnomaly> lifecycleAnomalies
+            List<LifecycleAnomaly> lifecycleAnomalies,
+            /** Check C(FCFS): 대기열 도착 순서 상위 N명(이론상 당첨자). dbUserIds와 비교해 CSV에 반영한다. */
+            Set<Long> expectedTopN
     ) {
     }
 
@@ -285,6 +325,14 @@ public class VerificationAsyncTrigger {
                 appendPolicyLevelRow(csv, policyId, "STOCK_LEAK(+" + findings.stockLeakCount() + ')', runAt);
             }
             appendLifecycleRows(csv, policyId, findings.lifecycleAnomalies(), runAt);
+
+            // Check C(FCFS): 도착순 상위 N명(expectedTopN) vs 실제 DB 발급자(dbUserIds) 경계 비교.
+            Set<Long> expectedNotIssued = new HashSet<>(findings.expectedTopN());
+            expectedNotIssued.removeAll(findings.dbUserIds());
+            Set<Long> issuedNotExpected = new HashSet<>(findings.dbUserIds());
+            issuedNotExpected.removeAll(findings.expectedTopN());
+            appendUserRows(csv, policyId, expectedNotIssued, "EXPECTED_NOT_ISSUED", runAt);
+            appendUserRows(csv, policyId, issuedNotExpected, "ISSUED_NOT_EXPECTED", runAt);
 
             try {
                 Files.createDirectories(reportDir);
@@ -328,11 +376,7 @@ public class VerificationAsyncTrigger {
         }
 
         /**
-         * 다운로드용 경로 해석. reportUrl은 클라이언트 입력이 아니라 서버가 직접 쓴 DB 저장값이라
-         * 고전적 경로 탐색 공격 벡터는 아니지만, DB 값 오염에 대비한 defense-in-depth로 reportDir
-         * 밖을 가리키면 방어적으로 거부한다. 항상 이 저장값에서 경로를 해석하고 policyId+runAt으로
-         * 파일명을 재조합하지 않는다 — 동시 요청 시 같은 밀리초에 CSV 파일명이 충돌할 수 있는
-         * 알려진 한계(Verification-Batch-Design.md)를 재계산으로 덮어쓰지 않기 위함이다.
+         * 다운로드용 경로 해석.
          */
         public Path resolveExistingFile(String storedReportUrl) {
             Path resolved;
