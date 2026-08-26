@@ -40,16 +40,16 @@ public class KafkaCouponEventProducer {
     }
 
     public void publishQueueJoinEvent(com.ureca.myureca.dto.event.QueueJoinEvent event) {
-        // 동일 정책+유저는 같은 파티션으로 전송되어 선착순 순서 영속화
-        String partitionKey = event.policyId() + "_" + event.userId();
+        // 동일 정책의 이벤트는 같은 파티션으로 전송되어 선착순(seq) 순서 보장
+        String partitionKey = String.valueOf(event.policyId());
         kafkaTemplate.send(QUEUE_JOIN_TOPIC, partitionKey, event)
                 .whenComplete((result, ex) -> {
                     if (ex != null) {
-                        log.warn("Kafka 대기열 진입 이벤트 전송 실패 (비차단 fallback) - policyId: {}, userId: {}, status: {}",
-                                event.policyId(), event.userId(), event.status(), ex);
+                        log.warn("Kafka 대기열 진입 이벤트 전송 실패 (비차단 fallback) - policyId: {}, userId: {}, status: {}, seq: {}",
+                                event.policyId(), event.userId(), event.status(), event.seq(), ex);
                     } else {
-                        log.debug("Kafka 대기열 진입 이벤트 전송 성공 - policyId: {}, userId: {}, offset: {}",
-                                event.policyId(), event.userId(), result.getRecordMetadata().offset());
+                        log.debug("Kafka 대기열 진입 이벤트 전송 성공 - policyId: {}, userId: {}, seq: {}, offset: {}",
+                                event.policyId(), event.userId(), event.seq(), result.getRecordMetadata().offset());
                     }
                 });
     }

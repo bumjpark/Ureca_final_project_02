@@ -30,9 +30,13 @@ if stock and tonumber(stock) <= 0 then
     return {"SOLD_OUT", "", "-1"}
 end
 
--- 4. 대기열 순번(ZRANK) 확인
+-- 4. 대기열 순번(ZRANK) 확인 및 조기 탈출 (Early Exit)
 local rank = redis.call('ZRANK', KEYS[4], ARGV[1])
 if rank ~= false then
+    local rankNum = tonumber(rank)
+    if stock and rankNum >= math.floor(tonumber(stock) * 1.1) then
+        return {"SOLD_OUT", "", "-1"}
+    end
     return {"WAITING", "", tostring(rank)}
 end
 

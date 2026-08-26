@@ -71,10 +71,10 @@ class QueueServiceTest {
     // ─── joinQueue (대기열 등록) ───────────────────────────────────────────────
 
     @Test
-    void 대기_인원이_있어_200을_받으면_WAITING과_순번을_반환한다() {
+    void 대기_인원이_있어_200을_받으면_WAITING과_순번을_반환하고_Kafka_이벤트에_seq를_전달한다() {
         when(couponPolicyCacheService.getPolicy(POLICY_ID)).thenReturn(openPolicy);
         when(redisTemplate.execute(eq(joinQueueScript), anyList(), anyString(), anyString()))
-                .thenReturn(List.of(200L, 5L, 10L));
+                .thenReturn(List.of(200L, 5L, 10L, 42L));
 
         QueueJoinResponse response = queueService.joinQueue(new QueueJoinRequest(POLICY_ID, USER_ID));
 
@@ -82,7 +82,14 @@ class QueueServiceTest {
         assertThat(response.rank()).isEqualTo(5L);
         assertThat(response.activeToken()).isNull();
         assertThat(response.estimatedWaitSeconds()).isEqualTo(5L);
-        org.mockito.Mockito.verify(kafkaCouponEventProducer).publishQueueJoinEvent(any(com.ureca.myureca.dto.event.QueueJoinEvent.class));
+
+        org.mockito.ArgumentCaptor<com.ureca.myureca.dto.event.QueueJoinEvent> eventCaptor =
+                org.mockito.ArgumentCaptor.forClass(com.ureca.myureca.dto.event.QueueJoinEvent.class);
+        org.mockito.Mockito.verify(kafkaCouponEventProducer).publishQueueJoinEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getValue().seq()).isEqualTo(42L);
+        assertThat(eventCaptor.getValue().rank()).isEqualTo(5L);
+        assertThat(eventCaptor.getValue().policyId()).isEqualTo(POLICY_ID);
+        assertThat(eventCaptor.getValue().userId()).isEqualTo(USER_ID);
     }
 
     @Test
