@@ -18,35 +18,16 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * 쿠폰 상태 변경 (사용 / 사용 취소 / 만료). FR-12, FR-13 담당.
- *
- * <p>정합성 보증은 3단으로 쌓여 있다.
- * <ol>
- *   <li><b>멱등성</b> — coupon_history.request_id UNIQUE. 같은 키로 두 번 오면 두 번째는 재실행 없이 결과만 재생</li>
- *   <li><b>원자성</b> — 조건부 UPDATE({@code where status = 기대값}). 동시 요청 중 정확히 하나만 성공</li>
- *   <li><b>감사</b> — coupon_history 에 prev/new 상태를 append-only 로 남김</li>
- * </ol>
- *
- * <p>이 경로에서는 엔티티의 {@code markUsed()} / {@code cancelUse()} / {@code expire()} 를 쓰지 않는다.
- * 읽고-검사하고-쓰는 방식은 동시 요청에서 갱신 유실이 가능한데, 조건부 UPDATE 는 그 검사를
- * DB 한 문장 안에서 해내기 때문이다. 엔티티 메서드는 만료 배치나 Kafka Consumer 처럼
- * 경합이 없는 경로를 위해 그대로 둔다.
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class CouponUseService {
 
-    /** coupon_history.request_id 컬럼 길이 */
     private static final int MAX_REQUEST_ID_LENGTH = 64;
 
     private final CouponIssueRepository couponIssueRepository;
     private final CouponHistoryRepository couponHistoryRepository;
 
-    /**
-     * @param requestId 클라이언트가 만든 Idempotency-Key. 재시도해도 한 번만 반영되게 하는 근거값
-     */
     @Transactional
     public CouponUseResponse changeStatus(Long couponIssueId, String requestId, CouponUseRequest request) {
         validateRequestId(requestId);

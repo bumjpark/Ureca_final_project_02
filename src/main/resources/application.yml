@@ -4,7 +4,7 @@ spring:
 
   # ---------- MySQL ----------
   datasource:
-    url: jdbc:mysql://${DB_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:coupon_db}?useSSL=false&serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+    url: jdbc:mysql://${DB_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:coupon_db}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul&characterEncoding=UTF-8
     username: ${MYSQL_USER:coupon_user}
     password: ${MYSQL_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -24,6 +24,11 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
+      lettuce:
+        pool:
+          max-active: 200
+          max-idle: 100
+          min-idle: 20
 
   # ---------- Kafka ----------
   kafka:
@@ -39,3 +44,18 @@ spring:
 
 server:
   port: ${SERVER_PORT:8080}
+  tomcat:
+    threads:
+      max: 1000          # 동시 처리 스레드 수 1000개로 상향
+      min-spare: 100     # 대기 스레드 100개 유지
+    max-connections: 30000   # 동시 TCP 연결 30000개 수용
+    accept-count: 10000      # 대기 큐 크기 10000개로 확장 (타임아웃 방어)
+    connection-timeout: 20000
+
+# ---------- Coupon Queue Settings ----------
+coupon:
+  queue:
+    max-size: ${COUPON_QUEUE_MAX_SIZE:30000}
+    token-ttl-seconds: ${COUPON_QUEUE_TOKEN_TTL:60}
+    admission-rate: ${COUPON_QUEUE_ADMISSION_RATE:300}
+    admission-interval-ms: ${COUPON_QUEUE_ADMISSION_INTERVAL_MS:1000}
