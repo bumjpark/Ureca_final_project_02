@@ -1,11 +1,12 @@
 package com.ureca.myureca.dto.response;
 
 import com.ureca.myureca.domain.coupon.CouponHistory;
+import com.ureca.myureca.domain.coupon.HistoryPrevStatus;
 import com.ureca.myureca.domain.coupon.IssueStatus;
 import java.time.LocalDateTime;
 
 public record CouponHistoryResponse(
-        IssueStatus prevStatus,
+        HistoryPrevStatus prevStatus,
         IssueStatus newStatus,
         String cancelReason,
         String requestId,
