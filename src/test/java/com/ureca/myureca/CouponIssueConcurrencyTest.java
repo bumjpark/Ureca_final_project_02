@@ -66,7 +66,7 @@ class CouponIssueConcurrencyTest {
         String[] tokens = new String[threadCount];
         for (int i = 0; i < threadCount; i++) {
             tokens[i] = "token-user-" + i + "-" + UUID.randomUUID();
-            redisTemplate.opsForValue().set(RedisKeys.activeToken(tokens[i]), "true");
+            redisTemplate.opsForValue().set(RedisKeys.activeToken(tokens[i]), String.valueOf(userId));
         }
 
         ExecutorService executorService = Executors.newFixedThreadPool(32);
@@ -126,7 +126,8 @@ class CouponIssueConcurrencyTest {
         String[] tokens = new String[totalRequests];
         for (int i = 0; i < totalRequests; i++) {
             tokens[i] = "token-user-" + i + "-" + UUID.randomUUID();
-            redisTemplate.opsForValue().set(RedisKeys.activeToken(tokens[i]), "true");
+            // value = userId 문자열 (ActiveTokenService.consume() 에서 소유자 검증에 사용)
+            redisTemplate.opsForValue().set(RedisKeys.activeToken(tokens[i]), String.valueOf((long)(i + 1)));
         }
 
         ExecutorService executorService = Executors.newFixedThreadPool(64);

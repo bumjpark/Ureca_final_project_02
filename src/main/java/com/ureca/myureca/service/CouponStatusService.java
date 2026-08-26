@@ -20,8 +20,8 @@ public class CouponStatusService {
 
     @Transactional(readOnly = true)
     public CouponStatusResponse getCouponStatus(Long policyId) {
-        // 1. DB에서 쿠폰 정책 조회
-        CouponPolicy couponPolicy = couponPolicyRepository.findById(policyId)
+        // 1. DB에서 쿠폰 정책 조회 (소프트 삭제된 정책 제외)
+        CouponPolicy couponPolicy = couponPolicyRepository.findByIdAndDeletedAtIsNull(policyId)
                 .orElseThrow(() -> new CouponPolicyNotFoundException(policyId));
 
         int totalQuantity = couponPolicy.getTotalQuantity();
