@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.ureca.myureca.domain.coupon.HistoryPrevStatus;
 import com.ureca.myureca.domain.coupon.IssueStatus;
 import com.ureca.myureca.dto.response.CouponHistoryResponse;
 import com.ureca.myureca.exception.CouponIssueNotFoundException;
@@ -30,9 +31,9 @@ class CouponHistoryControllerTest {
     void 쿠폰_이력을_정상적으로_조회한다() throws Exception {
         Long couponIssueId = 1L;
         CouponHistoryResponse response1 = new CouponHistoryResponse(
-                IssueStatus.ISSUED, IssueStatus.USED, "사용 완료", "req-1", LocalDateTime.of(2023, 1, 1, 10, 0));
+                HistoryPrevStatus.ISSUED, IssueStatus.USED, "사용 완료", "req-1", LocalDateTime.of(2023, 1, 1, 10, 0));
         CouponHistoryResponse response2 = new CouponHistoryResponse(
-                IssueStatus.USED, IssueStatus.ISSUED, "사용 취소", "req-2", LocalDateTime.of(2023, 1, 1, 10, 5));
+                HistoryPrevStatus.USED, IssueStatus.ISSUED, "사용 취소", "req-2", LocalDateTime.of(2023, 1, 1, 10, 5));
 
         when(couponHistoryService.getCouponHistory(couponIssueId))
                 .thenReturn(List.of(response1, response2));

@@ -15,6 +15,13 @@ public interface CouponHistoryRepository extends JpaRepository<CouponHistory, Lo
 
     List<CouponHistory> findByCouponIssueIdOrderByCreatedAtAsc(Long couponIssueId);
 
+    /**
+     * 인박스 패턴 1차 방어: Kafka Consumer 멱등성 체크용.
+     * CouponIssuedEvent.receiptId()가 이미 처리됐는지 확인한다.
+     * (receiptId → request_id 컬럼 매핑)
+     */
+    boolean existsByRequestId(String requestId);
+
     @Query("select new com.ureca.myureca.repository.CouponHistoryStatusSnapshot(h.couponIssue.id, h.newStatus) "
             + "from CouponHistory h where h.couponIssue.couponPolicy.id = :policyId "
             + "order by h.couponIssue.id asc, h.id asc")

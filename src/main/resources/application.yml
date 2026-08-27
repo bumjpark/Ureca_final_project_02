@@ -42,6 +42,17 @@ spring:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
 
+  # ---------- JPA Batch Insert (참고) ----------
+  # CouponIssue, CouponHistory가 IDENTITY 전략을 사용 중이라 JDBC batch insert가 무력화됨.
+  # 성능 개선 시 SEQUENCE 전략 전환 + 아래 설정 활성화 권장.
+  # jpa:
+  #   properties:
+  #     hibernate:
+  #       jdbc:
+  #         batch_size: 30
+  #       order_inserts: true
+  #       order_updates: true
+
 server:
   port: ${SERVER_PORT:8080}
   tomcat:
@@ -59,3 +70,12 @@ coupon:
     token-ttl-seconds: ${COUPON_QUEUE_TOKEN_TTL:60}
     admission-rate: ${COUPON_QUEUE_ADMISSION_RATE:300}
     admission-interval-ms: ${COUPON_QUEUE_ADMISSION_INTERVAL_MS:1000}
+
+# ---------- Coupon Kafka Consumer Settings ----------
+# concurrency: 파티션 수와 반드시 일치시킬 것.
+# 초과하면 일부 스레드가 파티션을 배정받지 못해 유휴 상태 + 순서 보장 깨짐.
+# 확인 명령: kafka-topics.sh --describe --topic coupon-issued-events --bootstrap-server localhost:9092
+  kafka:
+    consumer:
+      group-id: ${COUPON_KAFKA_CONSUMER_GROUP_ID:coupon-issue-consumer-group}
+      concurrency: ${COUPON_KAFKA_CONSUMER_CONCURRENCY:3}
