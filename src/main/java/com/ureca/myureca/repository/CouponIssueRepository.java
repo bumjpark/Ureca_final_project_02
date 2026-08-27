@@ -48,12 +48,10 @@ public interface CouponIssueRepository extends JpaRepository<CouponIssue, Long> 
     // ---- Redis 재구성(완전 유실 복구, E) 전용 조회 ----
     // 유저 id 목록은 위의 findUserIdsByCouponPolicyId를 그대로 재사용한다
     // (coupon_policy_id, user_id 유니크 제약 덕분에 중복이 애초에 안 생겨서 distinct 불필요).
-    // 예전엔 Kafka 이벤트를 직접 재처리하는 로직도 여기서 중복 방지용 조회를 썼지만,
-    // 상시 Consumer가 그 역할을 전담하는 쪽으로 재설계되면서 더 이상 필요 없어져 제거했다.
+    // 발급 완료 건수는 별도 count 쿼리를 두지 않고 이 목록의 size()로 유도한다 —
+    // count 쿼리와 목록 쿼리를 따로 날리면 그 사이 새 발급이 끼어들어 서로 다른 시점의
+    // 스냅샷이 될 수 있기 때문에, 한 번의 조회 결과로만 두 값을 계산해 일관성을 보장한다.
 
-    /** 정책별 발급 완료 건수. Redis stock 재계산(totalQuantity - 이 값)에 사용. */
-    long countByCouponPolicyId(Long couponPolicyId);
-    
 //  ---------- 쿠폰 상태 변경 (사용 / 사용 취소 / 만료) ----------
 
     @Query("select ci from CouponIssue ci "
