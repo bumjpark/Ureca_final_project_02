@@ -238,6 +238,14 @@ public class GlobalExceptionHandler {
                 .body(ErrorResponse.of(HttpStatus.METHOD_NOT_ALLOWED.value(), e.getMessage()));
     }
 
+    /** 정적 리소스(favicon 등) 또는 미존재 엔드포인트 요청 */
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public ResponseEntity<ErrorResponse> handleNoResourceFound(
+            org.springframework.web.servlet.resource.NoResourceFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ErrorResponse.of(HttpStatus.NOT_FOUND.value(), e.getMessage()));
+    }
+
     /**
      * 위에서 못 잡은 예상 못한 예외(Redis/DB 장애, NPE 등)
      */

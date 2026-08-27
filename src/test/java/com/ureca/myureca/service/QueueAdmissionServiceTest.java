@@ -31,6 +31,7 @@ class QueueAdmissionServiceTest {
     @Mock private StringRedisTemplate redisTemplate;
     @Mock private ValueOperations<String, String> valueOperations;
     @Mock private ZSetOperations<String, String> zSetOperations;
+    @Mock private QueueSseService queueSseService;
 
     @InjectMocks
     private QueueAdmissionService admissionService;
