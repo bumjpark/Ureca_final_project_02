@@ -1,20 +1,20 @@
 package com.ureca.myureca.exception;
 
-import com.ureca.myureca.exception.CouponNotOpenedException;
-import com.ureca.myureca.exception.QueueFullException;
-import lombok.extern.slf4j.Slf4j;
+import java.util.List;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
-import java.util.List;
+import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @RestControllerAdvice
@@ -78,6 +78,18 @@ public class GlobalExceptionHandler {
                 .body(ErrorResponse.of(HttpStatus.BAD_REQUEST.value(), e.getMessage()));
     }
 
+    @ExceptionHandler(CouponNotOwnedException.class)
+    public ResponseEntity<ErrorResponse> handleCouponNotOwned(CouponNotOwnedException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ErrorResponse.of(HttpStatus.FORBIDDEN.value(), e.getMessage()));
+    }
+
+    @ExceptionHandler(CouponStatusConflictException.class)
+    public ResponseEntity<ErrorResponse> handleCouponStatusConflict(CouponStatusConflictException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ErrorResponse.of(HttpStatus.CONFLICT.value(), e.getMessage()));
+    }
+
     @ExceptionHandler(ReconciliationLogNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleReconciliationLogNotFound(ReconciliationLogNotFoundException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
@@ -98,6 +110,19 @@ public class GlobalExceptionHandler {
                 .body(ErrorResponse.of(HttpStatus.CONFLICT.value(), e.getMessage()));
     }
 
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    public ResponseEntity<ErrorResponse> handleMissingHeader(MissingRequestHeaderException e) {
+        return ResponseEntity.badRequest()
+                .body(ErrorResponse.of(
+                        HttpStatus.BAD_REQUEST.value(),
+                        "'" + e.getHeaderName() + "' 헤더는 필수입니다."));
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ErrorResponse> handleIllegalArgument(IllegalArgumentException e) {
+        return ResponseEntity.badRequest()
+                .body(ErrorResponse.of(HttpStatus.BAD_REQUEST.value(), e.getMessage()));
+    }
     @ExceptionHandler(VerificationNotAllowedException.class)
     public ResponseEntity<ErrorResponse> handleVerificationNotAllowed(VerificationNotAllowedException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
@@ -225,3 +250,4 @@ public class GlobalExceptionHandler {
                         "일시적인 오류가 발생했습니다. 잠시 후 다시 시도해주세요."));
     }
 }
+

@@ -1,14 +1,19 @@
 package com.ureca.myureca.repository;
 
-import com.ureca.myureca.domain.coupon.CouponIssue;
-import com.ureca.myureca.domain.coupon.IssueStatus;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import com.ureca.myureca.domain.coupon.CouponIssue;
+import com.ureca.myureca.domain.coupon.IssueStatus;
 
 /**
  * 내 쿠폰함 조회 전용 리포지토리.
@@ -48,4 +53,22 @@ public interface CouponIssueRepository extends JpaRepository<CouponIssue, Long> 
 
     /** 정책별 발급 완료 건수. Redis stock 재계산(totalQuantity - 이 값)에 사용. */
     long countByCouponPolicyId(Long couponPolicyId);
+    
+//  ---------- 쿠폰 상태 변경 (사용 / 사용 취소 / 만료) ----------
+
+    @Query("select ci from CouponIssue ci "
+            + "join fetch ci.couponPolicy "
+            + "join fetch ci.user "
+            + "where ci.id = :id")
+    Optional<CouponIssue> findDetailById(@Param("id") Long id);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update CouponIssue ci "
+            + "set ci.status = :newStatus, ci.usedAt = :usedAt, ci.updatedAt = :now "
+            + "where ci.id = :id and ci.status = :expectedStatus")
+    int updateStatusIf(@Param("id") Long id,
+                       @Param("expectedStatus") IssueStatus expectedStatus,
+                       @Param("newStatus") IssueStatus newStatus,
+                       @Param("usedAt") LocalDateTime usedAt,
+                       @Param("now") LocalDateTime now);
 }
