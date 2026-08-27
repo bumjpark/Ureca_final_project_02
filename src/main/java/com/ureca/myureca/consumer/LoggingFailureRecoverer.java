@@ -13,12 +13,9 @@ import org.springframework.stereotype.Component;
 /**
  * 재시도 모두 실패 시 구조화된 로그를 기록하는 복구 구현체.
  *
- * <p>다음 이슈(DLT)에서 {@code DltPublishingFailureRecoverer}로 교체할 수 있도록
- * {@link ConsumerFailureRecoverer} 인터페이스를 구현한다.
- * 교체 시 {@link KafkaConsumerConfig}의 Bean 선언만 변경하면 되며,
- * Consumer 비즈니스 로직은 수정 불필요하다.
- *
- * <p>로그 포맷은 다음 DLT 이슈에서도 그대로 재사용 예정이므로 필드 구조를 유지할 것.
+ * <p>(UBM-37 이전) 이 클래스가 {@link com.ureca.myureca.config.KafkaConsumerConfig}에 주입되는
+ * 기본 구현체였으나, 지금은 {@link DltPublishingFailureRecoverer}(@Primary)로 교체됐다.
+ * 이 클래스는 DLT 발행 자체가 실패했을 때의 폴백으로 계속 쓰인다 — 로그 포맷 필드 구조를 유지할 것.
  */
 @Slf4j
 @Component

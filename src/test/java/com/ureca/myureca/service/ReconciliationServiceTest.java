@@ -177,7 +177,7 @@ class ReconciliationServiceTest {
         when(reconciliationRetryTrigger.dispatch(1L)).thenReturn(response(1L, ReconciliationStatus.PENDING));
         when(reconciliationRetryTrigger.dispatch(2L)).thenReturn(response(2L, ReconciliationStatus.PENDING));
 
-        List<ReconciliationLogResponse> results = reconciliationService.retryAll();
+        List<ReconciliationLogResponse> results = reconciliationService.retryAll(ReconciliationType.EVENT_REPUBLISH);
 
         assertThat(results).hasSize(2);
         assertThat(results).extracting(ReconciliationLogResponse::id).containsExactly(1L, 2L);
@@ -191,7 +191,7 @@ class ReconciliationServiceTest {
         when(reconciliationRetryTrigger.dispatch(1L)).thenReturn(response(1L, ReconciliationStatus.PENDING));
         when(reconciliationRetryTrigger.dispatch(2L)).thenThrow(new RuntimeException("DB 순단"));
 
-        assertThatThrownBy(() -> reconciliationService.retryAll())
+        assertThatThrownBy(() -> reconciliationService.retryAll(ReconciliationType.EVENT_REPUBLISH))
                 .isInstanceOf(ReconciliationBulkDispatchException.class)
                 .satisfies(e -> {
                     var bulkException = (ReconciliationBulkDispatchException) e;
@@ -203,7 +203,7 @@ class ReconciliationServiceTest {
     void 대상이_없으면_빈_리스트를_반환한다() {
         when(reconciliationLogRepository.findByTypeAndStatusIn(any(), any())).thenReturn(List.of());
 
-        List<ReconciliationLogResponse> results = reconciliationService.retryAll();
+        List<ReconciliationLogResponse> results = reconciliationService.retryAll(ReconciliationType.EVENT_REPUBLISH);
 
         assertThat(results).isEmpty();
         verify(reconciliationRetryTrigger, never()).dispatch(any());

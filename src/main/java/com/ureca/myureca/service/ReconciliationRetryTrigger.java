@@ -33,7 +33,12 @@ public class ReconciliationRetryTrigger {
         ReconciliationLog logEntity = reconciliationLogRepository.findById(logId)
                 .orElseThrow(() -> new ReconciliationLogNotFoundException(logId));
 
-        if (logEntity.getType() != ReconciliationType.EVENT_REPUBLISH) {
+        // EVENT_REPUBLISH(Kafka 발행 자체가 실패)와 DLT_REPROCESS(Consumer 처리 실패로 DLT에 쌓임)
+        // 둘 다 "payload를 다시 coupon-issued-events 토픽으로 발행한다"는 동작이 동일하므로 같은 경로를 탄다.
+        // 재발행된 이벤트는 KafkaCouponEventConsumer → CouponIssuedEventProcessor의 인박스 체크(1차) +
+        // DB UNIQUE 제약(2차) 덕분에, 원본이 사실은 이미 반영돼 있었더라도 중복 발급되지 않는다.
+        if (logEntity.getType() != ReconciliationType.EVENT_REPUBLISH
+                && logEntity.getType() != ReconciliationType.DLT_REPROCESS) {
             throw new ReconciliationTypeNotSupportedException(logEntity.getId(), logEntity.getType());
         }
         if (logEntity.getStatus() == ReconciliationStatus.SUCCESS) {
