@@ -12,6 +12,7 @@ import com.ureca.myureca.domain.coupon.CouponHistory;
 import com.ureca.myureca.domain.coupon.CouponIssue;
 import com.ureca.myureca.domain.coupon.CouponPolicy;
 import com.ureca.myureca.domain.coupon.CouponType;
+import com.ureca.myureca.domain.coupon.HistoryPrevStatus;
 import com.ureca.myureca.domain.coupon.IssueStatus;
 import com.ureca.myureca.domain.user.User;
 import com.ureca.myureca.dto.request.CouponUseRequest;
@@ -103,7 +104,7 @@ class CouponUseServiceTest {
         CouponIssue issue = issue(IssueStatus.ISSUED, LocalDateTime.now().plusDays(7));
         issue.markUsed(LocalDateTime.now());
         CouponHistory history =
-                new CouponHistory(issue, KEY, IssueStatus.ISSUED, IssueStatus.USED, null);
+                new CouponHistory(issue, KEY, HistoryPrevStatus.ISSUED, IssueStatus.USED, null);
         when(couponHistoryRepository.findByRequestId(KEY)).thenReturn(Optional.of(history));
 
         CouponUseResponse response = couponUseService.changeStatus(
@@ -274,7 +275,7 @@ class CouponUseServiceTest {
         CouponIssue issue = issue(IssueStatus.ISSUED, LocalDateTime.now().plusDays(7));
         issue.markUsed(LocalDateTime.now());
         CouponHistory 사용_이력 =
-                new CouponHistory(issue, KEY, IssueStatus.ISSUED, IssueStatus.USED, null);
+                new CouponHistory(issue, KEY, HistoryPrevStatus.ISSUED, IssueStatus.USED, null);
         when(couponHistoryRepository.findByRequestId(KEY)).thenReturn(Optional.of(사용_이력));
 
         assertThatThrownBy(() -> couponUseService.changeStatus(

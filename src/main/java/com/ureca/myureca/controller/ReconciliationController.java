@@ -23,14 +23,18 @@ public class ReconciliationController {
     private final ReconciliationService reconciliationService;
 
     /**
-     * 정합성 복구 - 수동 재처리 실행
+     * 정합성 복구 - 수동 재처리 실행.
+     * logId를 주면 단건 재처리, 생략하면 type(기본값 EVENT_REPUBLISH)에 해당하는 전체 재처리.
      */
     @PostMapping("/retry")
-    public ResponseEntity<?> retry(@RequestParam(required = false) Long logId) {
+    public ResponseEntity<?> retry(
+            @RequestParam(required = false) Long logId,
+            @RequestParam(required = false, defaultValue = "EVENT_REPUBLISH") ReconciliationType type
+    ) {
         if (logId != null) {
             return ResponseEntity.accepted().body(reconciliationService.retryOne(logId));
         }
-        return ResponseEntity.accepted().body(reconciliationService.retryAll());
+        return ResponseEntity.accepted().body(reconciliationService.retryAll(type));
     }
 
     /**

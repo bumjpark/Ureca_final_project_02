@@ -18,5 +18,22 @@ public enum HistoryPrevStatus {
     /** 사용됨 상태에서 전이 */
     USED,
     /** 만료됨 상태에서 전이 */
-    EXPIRED
+    EXPIRED;
+
+    /** IssueStatus → HistoryPrevStatus 변환. 상태 전이(사용/취소 등) 이력을 남길 때 사용한다. */
+    public static HistoryPrevStatus from(IssueStatus status) {
+        return HistoryPrevStatus.valueOf(status.name());
+    }
+
+    /**
+     * HistoryPrevStatus → IssueStatus 역변환.
+     * NONE(최초 발급 전용 값)은 대응하는 IssueStatus가 없어 예외를 던진다 — 호출부는
+     * "상태 전이 이력"에서만 이 메서드를 써야 하며, 최초 발급 이력에는 쓰면 안 된다.
+     */
+    public IssueStatus toIssueStatus() {
+        if (this == NONE) {
+            throw new IllegalStateException("NONE은 IssueStatus로 변환할 수 없습니다 (최초 발급 이력 전용 값).");
+        }
+        return IssueStatus.valueOf(this.name());
+    }
 }
