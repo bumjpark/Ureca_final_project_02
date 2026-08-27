@@ -24,7 +24,7 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class QueueAdmissionScheduler {
 
-    private final CouponPolicyRepository couponPolicyRepository;
+    private final CouponPolicyCacheService couponPolicyCacheService;
     private final QueueAdmissionService queueAdmissionService;
     private final QueueLimitAdminService queueLimitAdminService;
     private final StringRedisTemplate redisTemplate;
@@ -36,15 +36,14 @@ public class QueueAdmissionScheduler {
     public void processQueueAdmission() {
         LocalDateTime now = LocalDateTime.now();
 
-        // 1. 현재 오픈 진행 중인 쿠폰 정책들 조회
-        List<CouponPolicy> activePolicies = couponPolicyRepository.findByDeletedAtIsNull(Pageable.unpaged())
-                .getContent()
+        // 1. 현재 오픈 진행 중인 쿠폰 정책들 조회 (In-Memory 캐시로 매초 DB IOPS 0 유지)
+        List<CouponPolicyCacheService.CachedPolicy> activePolicies = couponPolicyCacheService.getActivePolicies()
                 .stream()
-                .filter(policy -> !now.isBefore(policy.getOpenAt()) && (policy.getCloseAt() == null || !now.isAfter(policy.getCloseAt())))
+                .filter(policy -> !now.isBefore(policy.openAt()) && (policy.closeAt() == null || !now.isAfter(policy.closeAt())))
                 .toList();
 
-        for (CouponPolicy policy : activePolicies) {
-            Long policyId = policy.getId();
+        for (CouponPolicyCacheService.CachedPolicy policy : activePolicies) {
+            Long policyId = policy.id();
             String lockKey = RedisKeys.lockAdmission(policyId);
 
             // 2. 분산 락 획득 시도 (1초 TTL) - 다중 인스턴스 중복 실행 방어

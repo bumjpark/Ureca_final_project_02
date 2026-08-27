@@ -254,7 +254,7 @@ public class QueueService {
     /**
      * In-Memory 캐시 기반 정책 유효성 검증.
      */
-    private void validatePolicy(Long policyId) {
+    private CouponPolicyCacheService.CachedPolicy validatePolicy(Long policyId) {
         CouponPolicyCacheService.CachedPolicy policy = couponPolicyCacheService.getPolicy(policyId);
 
         LocalDateTime now = LocalDateTime.now();
@@ -266,5 +266,7 @@ public class QueueService {
         if (now.isBefore(policy.openAt())) {
             throw new CouponNotOpenedException(policyId, policy.openAt());
         }
+
+        return policy;
     }
 }
