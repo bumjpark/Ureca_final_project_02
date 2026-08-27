@@ -121,15 +121,18 @@ public class VerificationAsyncTrigger {
                 policyId, (long) liveN);
         Set<Long> expectedTopN;
         int fcfsMismatchCount;
+        boolean fcfsChecked;
         if (coveredCount < liveN) {
             log.warn("정책 id={} queue_join_log의 순번 구간 [1,{}] 적재분({}건)이 아직 채워지지 않아 "
                     + "선착순(FCFS) 검증을 건너뜁니다 (queue-join-events 컨슈머 미가동 또는 캐치업 중으로 추정).",
                     policyId, liveN, coveredCount);
             expectedTopN = Set.of();
             fcfsMismatchCount = 0;
+            fcfsChecked = false;
         } else {
             expectedTopN = fetchExpectedTopN(policyId, liveN);
             fcfsMismatchCount = countMismatch(dbUserIds, expectedTopN);
+            fcfsChecked = true;
         }
 
         int mismatchCount =
@@ -149,7 +152,8 @@ public class VerificationAsyncTrigger {
         if (diffMismatchCount > 0 || overIssuedCount > 0 || stockLeakCount > 0
                 || !lifecycleAnomalies.isEmpty() || fcfsMismatchCount > 0) {
             MismatchFindings findings = new MismatchFindings(
-                    dbUserIds, redisUserIds, overIssuedCount, stockLeakCount, lifecycleAnomalies, expectedTopN);
+                    dbUserIds, redisUserIds, overIssuedCount, stockLeakCount, lifecycleAnomalies,
+                    expectedTopN, fcfsChecked);
             csvPath = mismatchReportWriter.write(policyId, runAt, findings);
         }
 
@@ -290,7 +294,14 @@ public class VerificationAsyncTrigger {
             int stockLeakCount,
             List<LifecycleAnomaly> lifecycleAnomalies,
             /** Check C(FCFS): 대기열 도착 순서 상위 N명(이론상 당첨자). dbUserIds와 비교해 CSV에 반영한다. */
-            Set<Long> expectedTopN
+            Set<Long> expectedTopN,
+            /**
+             * Check C가 실제로 수행됐는지 여부. queue_join_log 적재가 아직 안 끝나 Check C 자체를
+             * 건너뛴 경우 {@code expectedTopN}은 그냥 빈 Set이라, 이 플래그 없이 "빈 Set이니까
+             * dbUserIds 전부가 ISSUED_NOT_EXPECTED"로 잘못 해석하면 실제로는 있지도 않은 수백만
+             * 건짜리 가짜 불일치를 CSV에 쏟아내게 된다(100만 유저 규모 더미데이터로 실제 재현·확인함).
+             */
+            boolean fcfsChecked
     ) {
     }
 
@@ -327,10 +338,20 @@ public class VerificationAsyncTrigger {
             appendLifecycleRows(csv, policyId, findings.lifecycleAnomalies(), runAt);
 
             // Check C(FCFS): 도착순 상위 N명(expectedTopN) vs 실제 DB 발급자(dbUserIds) 경계 비교.
-            Set<Long> expectedNotIssued = new HashSet<>(findings.expectedTopN());
-            expectedNotIssued.removeAll(findings.dbUserIds());
-            Set<Long> issuedNotExpected = new HashSet<>(findings.dbUserIds());
-            issuedNotExpected.removeAll(findings.expectedTopN());
+            // Check C 자체가 스킵된 경우(queue_join_log 미적재) expectedTopN은 그냥 빈 Set이라,
+            // 이 블록을 그대로 돌리면 dbUserIds 전체가 "ISSUED_NOT_EXPECTED"로 찍혀버린다 —
+            // Check C가 실제로 수행된 경우에만 이 비교를 수행한다.
+            Set<Long> expectedNotIssued;
+            Set<Long> issuedNotExpected;
+            if (findings.fcfsChecked()) {
+                expectedNotIssued = new HashSet<>(findings.expectedTopN());
+                expectedNotIssued.removeAll(findings.dbUserIds());
+                issuedNotExpected = new HashSet<>(findings.dbUserIds());
+                issuedNotExpected.removeAll(findings.expectedTopN());
+            } else {
+                expectedNotIssued = Set.of();
+                issuedNotExpected = Set.of();
+            }
             appendUserRows(csv, policyId, expectedNotIssued, "EXPECTED_NOT_ISSUED", runAt);
             appendUserRows(csv, policyId, issuedNotExpected, "ISSUED_NOT_EXPECTED", runAt);
 

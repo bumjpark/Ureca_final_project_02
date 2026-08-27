@@ -2,6 +2,7 @@ package com.ureca.myureca.service;
 
 import com.ureca.myureca.domain.coupon.CouponHistory;
 import com.ureca.myureca.domain.coupon.CouponIssue;
+import com.ureca.myureca.domain.coupon.HistoryPrevStatus;
 import com.ureca.myureca.domain.coupon.IssueStatus;
 import com.ureca.myureca.dto.request.CouponUseRequest;
 import com.ureca.myureca.dto.response.CouponUseResponse;
@@ -88,7 +89,7 @@ public class CouponUseService {
             couponHistoryRepository.saveAndFlush(new CouponHistory(
                     couponIssueRepository.getReferenceById(couponIssueId),
                     requestId,
-                    transition.from(),
+                    HistoryPrevStatus.valueOf(transition.from().name()),
                     transition.to(),
                     request.reason()));
         } catch (DataIntegrityViolationException e) {

@@ -26,7 +26,7 @@ public record CouponUseResponse(
         return new CouponUseResponse(
                 history.getCouponIssue().getId(),
                 history.getCouponIssue().getReceiptId(),
-                history.getPrevStatus(),
+                IssueStatus.valueOf(history.getPrevStatus().name()),
                 history.getNewStatus(),
                 history.getCouponIssue().getUsedAt(),
                 true,

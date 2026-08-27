@@ -83,6 +83,52 @@ services:
     networks:
       - coupon-network
 
+  # 애플리케이션 자체를 컨테이너화한다. k6 같은 부하테스트 도구를 도커로 띄워
+  # 같은 네트워크(coupon-network)에서 직접 이 서비스명(app:8080)으로 호출하면,
+  # host.docker.internal을 거치는 호스트-게이트웨이 NAT 병목을 피할 수 있다
+  # (toy 프로젝트의 docker-compose.yml과 동일한 패턴).
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: coupon-app
+    restart: unless-stopped
+    ports:
+      - "${SERVER_PORT:-8080}:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-local}
+      SERVER_PORT: 8080
+      # DB/Redis/Kafka 전부 호스트 매핑 포트가 아니라 컨테이너 내부 포트 +
+      # 컴포즈 서비스명으로 접속한다 (host.docker.internal 왕복 없음).
+      DB_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      # 대기열 admission 스케줄러 처리율. 기본 300/1000ms(=300명/초)로는 부하테스트에서
+      # admission 자체가 병목이 됨을 실측 확인함(10,000명 admit에 약 34초 소요, 300/초와
+      # 정확히 일치). 다른 계층(Redis/Kafka/DB)의 실제 한계를 보려고 여기서 크게 올려본다.
+      COUPON_QUEUE_ADMISSION_RATE: ${COUPON_QUEUE_ADMISSION_RATE:-300}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - coupon-network
+
 volumes:
   mysql_data:
   redis_data:

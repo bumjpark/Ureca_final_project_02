@@ -188,7 +188,7 @@ class VerificationAsyncTriggerTest {
         assertThat(report.getMismatchCount()).isEqualTo(2); // (300 못받음, 999 잘못받음) 쌍
         verify(mismatchReportWriter).write(eq(1L), any(),
                 eq(new MismatchFindings(Set.of(100L, 200L, 999L), Set.of(100L, 200L, 999L), 0, 0, List.of(),
-                        Set.of(100L, 200L, 300L))));
+                        Set.of(100L, 200L, 300L), true)));
     }
 
     @Test
@@ -210,7 +210,7 @@ class VerificationAsyncTriggerTest {
         assertThat(report.getReportUrl()).isEqualTo(expectedCsvPath.toString());
         verify(mismatchReportWriter).write(
                 eq(1L), any(),
-                eq(new MismatchFindings(Set.of(100L, 200L), Set.of(100L, 200L, 999L), 0, 0, List.of(), Set.of())));
+                eq(new MismatchFindings(Set.of(100L, 200L), Set.of(100L, 200L, 999L), 0, 0, List.of(), Set.of(), false)));
     }
 
     @Test
@@ -266,7 +266,7 @@ class VerificationAsyncTriggerTest {
         assertThat(report.getMismatchCount()).isEqualTo(1); // 초과분 1건 (누수는 음수라 0건)
         assertThat(report.getReportUrl()).isNotNull();
         verify(mismatchReportWriter).write(eq(1L), any(),
-                eq(new MismatchFindings(Set.of(100L, 200L, 300L), Set.of(100L, 200L, 300L), 1, 0, List.of(), Set.of())));
+                eq(new MismatchFindings(Set.of(100L, 200L, 300L), Set.of(100L, 200L, 300L), 1, 0, List.of(), Set.of(), false)));
     }
 
     @Test
@@ -288,7 +288,7 @@ class VerificationAsyncTriggerTest {
         assertThat(report.getMismatchCount()).isEqualTo(3);
         verify(mismatchReportWriter).write(eq(1L), any(),
                 eq(new MismatchFindings(Set.of(1L, 2L, 3L, 4L, 5L, 6L), Set.of(1L, 2L, 3L, 4L, 5L, 6L), 0, 3,
-                        List.of(), Set.of())));
+                        List.of(), Set.of(), false)));
     }
 
     @Test
@@ -328,7 +328,7 @@ class VerificationAsyncTriggerTest {
         assertThat(report.getMismatchCount()).isEqualTo(1);
         verify(mismatchReportWriter).write(eq(1L), any(),
                 eq(new MismatchFindings(Set.of(100L), Set.of(100L), 0, 0,
-                        List.of(new LifecycleAnomaly(10L, 100L, "HISTORY_MISMATCH")), Set.of())));
+                        List.of(new LifecycleAnomaly(10L, 100L, "HISTORY_MISMATCH")), Set.of(), false)));
     }
 
     @Test
@@ -349,7 +349,7 @@ class VerificationAsyncTriggerTest {
         assertThat(report.getMismatchCount()).isEqualTo(1);
         verify(mismatchReportWriter).write(eq(1L), any(),
                 eq(new MismatchFindings(Set.of(100L), Set.of(100L), 0, 0,
-                        List.of(new LifecycleAnomaly(10L, 100L, "MISSING_HISTORY")), Set.of())));
+                        List.of(new LifecycleAnomaly(10L, 100L, "MISSING_HISTORY")), Set.of(), false)));
     }
 
     @Test
@@ -369,7 +369,7 @@ class VerificationAsyncTriggerTest {
         assertThat(report.getMismatchCount()).isEqualTo(1);
         verify(mismatchReportWriter).write(eq(1L), any(),
                 eq(new MismatchFindings(Set.of(100L), Set.of(100L), 0, 0,
-                        List.of(new LifecycleAnomaly(10L, 100L, "MISSING_HISTORY")), Set.of())));
+                        List.of(new LifecycleAnomaly(10L, 100L, "MISSING_HISTORY")), Set.of(), false)));
     }
 
     @Test
