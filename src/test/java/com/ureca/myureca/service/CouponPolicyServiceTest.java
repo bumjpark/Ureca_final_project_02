@@ -54,7 +54,6 @@ class CouponPolicyServiceTest {
                 assertThat(response.couponType()).isEqualTo(CouponType.FIXED);
                 assertThat(response.discountValue()).isEqualTo(5000);
                 assertThat(response.totalQuantity()).isEqualTo(10000);
-                assertThat(response.issuedQuantity()).isEqualTo(0);
                 verify(couponPolicyRepository).save(any(CouponPolicy.class));
         }
 

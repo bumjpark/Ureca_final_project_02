@@ -22,6 +22,7 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
+import org.hibernate.annotations.UpdateTimestamp;
 
 /**
  * coupon_history 테이블 매핑 엔티티. 불변(Append-Only) 감사 로그.
@@ -85,6 +86,11 @@ public class CouponHistory {
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
+
+    /** 이 테이블은 Append-Only라 실제로 값이 바뀌는 일은 없지만, 컨벤션상 모든 테이블에 둔다. */
+    @UpdateTimestamp
+    @Column(name = "updated_at", nullable = false)
+    private LocalDateTime updatedAt;
 
     public CouponHistory(
             CouponIssue couponIssue,

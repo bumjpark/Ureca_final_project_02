@@ -50,7 +50,7 @@ class CouponPolicyAdminControllerTest {
     @Test
     void 정책_목록_조회에_성공하면_200을_반환한다() throws Exception {
         CouponPolicyResponse response = new CouponPolicyResponse(
-                1L, "테스트 쿠폰", CouponType.FIXED, 1000, 100, 0,
+                1L, "테스트 쿠폰", CouponType.FIXED, 1000, 100,
                 LocalDateTime.now().plusDays(1), null, LocalDateTime.now(), LocalDateTime.now()
         );
         PageResponse<CouponPolicyResponse> pageResponse = PageResponse.from(
@@ -67,7 +67,7 @@ class CouponPolicyAdminControllerTest {
     @Test
     void 정책_단건_조회에_성공하면_200을_반환한다() throws Exception {
         CouponPolicyResponse response = new CouponPolicyResponse(
-                1L, "테스트 쿠폰", CouponType.FIXED, 1000, 100, 0,
+                1L, "테스트 쿠폰", CouponType.FIXED, 1000, 100,
                 LocalDateTime.now().plusDays(1), null, LocalDateTime.now(), LocalDateTime.now()
         );
         when(couponPolicyService.getCouponPolicy(1L)).thenReturn(response);
@@ -85,7 +85,7 @@ class CouponPolicyAdminControllerTest {
                 "수정된 쿠폰", CouponType.RATE, 20, 200, newOpenAt, null
         );
         CouponPolicyResponse response = new CouponPolicyResponse(
-                1L, "수정된 쿠폰", CouponType.RATE, 20, 200, 0,
+                1L, "수정된 쿠폰", CouponType.RATE, 20, 200,
                 newOpenAt, null, LocalDateTime.now(), LocalDateTime.now()
         );
         when(couponPolicyService.updateCouponPolicy(eq(1L), any(CouponPolicyUpdateRequest.class)))
