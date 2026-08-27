@@ -34,6 +34,15 @@ spring:
           max-idle: 100
           min-idle: 20
 
+  # ---------- @Scheduled 배치 스레드풀 ----------
+  # 값을 명시하지 않으면 스케줄러 스레드가 1개라 모든 @Scheduled 배치가 직렬로 실행된다.
+  # 대기열 입장(1초 주기 핫패스)이 헬스체크/Redis 복구 배치에 밀리지 않도록 분리한다.
+  # @Scheduled 메서드를 추가하면 이 값도 함께 올릴 것 (SchedulingConfig 참고).
+  task:
+    scheduling:
+      pool:
+        size: ${SCHEDULING_POOL_SIZE:4}
+
   # ---------- Kafka ----------
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
