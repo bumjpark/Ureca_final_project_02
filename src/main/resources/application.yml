@@ -24,6 +24,10 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
+      # 커맨드 타임아웃을 명시하지 않으면 Lettuce 기본값(60s)이 적용돼, Redis가 죽었을 때
+      # 요청 하나가 수십 초씩 블로킹된다. RedisConfig의 ClientOptions(REJECT_COMMANDS)와
+      # 함께 "빠른 실패"를 강제하기 위한 짧은 타임아웃.
+      timeout: 1000ms
       lettuce:
         pool:
           max-active: 200
@@ -79,3 +83,16 @@ coupon:
     consumer:
       group-id: ${COUPON_KAFKA_CONSUMER_GROUP_ID:coupon-issue-consumer-group}
       concurrency: ${COUPON_KAFKA_CONSUMER_CONCURRENCY:3}
+
+  # ---------- Redis 재구성(UBM-33) 운영 자동화 ----------
+  redis-recovery:
+    # RedisAutoRecoveryScheduler: 열려 있는 정책 중 stock 키가 없는 것을 이 주기로 찾아
+    # 자동 recover 한다 (최초 오픈 초기화 + lag 실패 후 재시도 + 여러 정책 일괄 처리를 겸함).
+    auto-interval-ms: ${COUPON_REDIS_RECOVERY_AUTO_INTERVAL_MS:5000}
+
+# ---------- 인프라 헬스체크 모니터링 ----------
+infra:
+  health-monitor:
+    # InfraHealthMonitorScheduler: /api/health?deep=true 를 이 주기로 폴링해서
+    # 상태 전환(UP<->DOWN) 시점에만 OpsAlertNotifier로 알린다.
+    interval-ms: ${INFRA_HEALTH_MONITOR_INTERVAL_MS:5000}
