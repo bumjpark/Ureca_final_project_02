@@ -43,6 +43,9 @@ class QueueControllerTest {
     @MockitoBean
     private QueueService queueService;
 
+    @MockitoBean
+    private com.ureca.myureca.service.QueueSseService queueSseService;
+
     // ─── POST /api/queue/join ────────────────────────────────────────────────
 
     @Test
@@ -230,5 +233,16 @@ class QueueControllerTest {
                         .param("policyId", "1")
                         .param("userId", "42"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void 대기열_SSE_스트림_연결_성공() throws Exception {
+        org.springframework.web.servlet.mvc.method.annotation.SseEmitter emitter = new org.springframework.web.servlet.mvc.method.annotation.SseEmitter();
+        when(queueSseService.connect(eq(1L), eq(42L))).thenReturn(emitter);
+
+        mockMvc.perform(get("/api/queue/stream")
+                        .param("policyId", "1")
+                        .param("userId", "42"))
+                .andExpect(status().isOk());
     }
 }

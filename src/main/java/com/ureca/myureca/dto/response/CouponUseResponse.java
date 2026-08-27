@@ -1,13 +1,14 @@
 package com.ureca.myureca.dto.response;
 
 import com.ureca.myureca.domain.coupon.CouponHistory;
+import com.ureca.myureca.domain.coupon.HistoryPrevStatus;
 import com.ureca.myureca.domain.coupon.IssueStatus;
 import java.time.LocalDateTime;
 
 public record CouponUseResponse(
         Long couponIssueId,
         String receiptId,
-        IssueStatus prevStatus,
+        HistoryPrevStatus prevStatus,
         IssueStatus status,
         LocalDateTime usedAt,
         boolean replayed,
@@ -15,7 +16,7 @@ public record CouponUseResponse(
 ) {
 
     public static CouponUseResponse applied(Long couponIssueId, String receiptId,
-                                            IssueStatus prevStatus, IssueStatus status,
+                                            HistoryPrevStatus prevStatus, IssueStatus status,
                                             LocalDateTime usedAt) {
         return new CouponUseResponse(
                 couponIssueId, receiptId, prevStatus, status, usedAt, false, messageOf(status));

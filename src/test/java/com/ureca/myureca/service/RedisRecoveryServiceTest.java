@@ -27,6 +27,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.script.RedisScript;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
 class RedisRecoveryServiceTest {
@@ -44,33 +46,53 @@ class RedisRecoveryServiceTest {
     @Mock
     private KafkaConsumerLagChecker lagChecker;
     @Mock
+    private RedisScript<Long> recoveryFinalizeScript;
+    @Mock
+    private RedisScript<Long> renewLockScript;
+    @Mock
+    private RedisScript<Long> releaseLockScript;
+    @Mock
     private CouponPolicy policy;
 
     private RedisRecoveryService service;
 
     @BeforeEach
     void setUp() {
-        service = new RedisRecoveryService(couponIssueRepository, couponPolicyRepository, redisTemplate, lagChecker);
+        service = new RedisRecoveryService(couponIssueRepository, couponPolicyRepository, redisTemplate, lagChecker,
+                recoveryFinalizeScript, renewLockScript, releaseLockScript);
+        // @Value 필드는 스프링 컨테이너 없이 만든 유닛 테스트 인스턴스에는 주입되지 않으므로
+        // 실제 컨슈머(KafkaCouponEventConsumer)와 동일한 기본값으로 직접 세팅한다.
+        ReflectionTestUtils.setField(service, "consumerGroupId", "coupon-issue-consumer-group");
     }
 
     @Test
-    void lag가_0이면_DB_기준으로_Redis를_재구성한다() {
+    void lag가_0이면_DB_기준으로_staging에_채운_뒤_finalize_스크립트로_원자적_교체한다() {
         when(couponPolicyRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(policy));
         when(policy.getId()).thenReturn(1L);
         when(policy.getTotalQuantity()).thenReturn(100);
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.setIfAbsent(eq("recover:lock:1"), anyString(), any(Duration.class))).thenReturn(true);
-        when(lagChecker.getLag("coupon-issued-events", "coupon-service")).thenReturn(0L);
-        when(couponIssueRepository.countByCouponPolicyId(1L)).thenReturn(30L);
+        when(lagChecker.getLag("coupon-issued-events", "coupon-issue-consumer-group")).thenReturn(0L);
         when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(10L, 20L, 30L));
         when(redisTemplate.opsForSet()).thenReturn(setOperations);
 
         RedisRecoverResponse response = service.recover(1L);
 
         assertThat(response.status()).isEqualTo("SUCCESS");
-        assertThat(response.issuedCount()).isEqualTo(30L);
-        assertThat(response.remainingStock()).isEqualTo(70);
+        assertThat(response.issuedCount()).isEqualTo(3L);
+        assertThat(response.remainingStock()).isEqualTo(97);
         assertThat(response.kafkaLag()).isZero();
+
+        // staging 키에 먼저 채우고,
+        verify(setOperations).add(eq("coupon:policy:1:issued:staging"), eq("10"), eq("20"), eq("30"));
+        // 실제 stock/reserved/issued 키는 finalize 스크립트 한 번으로만 교체한다.
+        verify(redisTemplate).execute(
+                eq(recoveryFinalizeScript),
+                eq(List.of("coupon:policy:1:stock", "coupon:policy:1:reserved",
+                        "coupon:policy:1:issued", "coupon:policy:1:issued:staging")),
+                eq("97"));
+        // 락은 내가 잡은 토큰으로만 해제(compare-and-delete)한다.
+        verify(redisTemplate).execute(eq(releaseLockScript), eq(List.of("recover:lock:1")), anyString());
     }
 
     @Test
@@ -78,14 +100,15 @@ class RedisRecoveryServiceTest {
         when(couponPolicyRepository.findByIdAndDeletedAtIsNull(2L)).thenReturn(Optional.of(policy));
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.setIfAbsent(eq("recover:lock:2"), anyString(), any(Duration.class))).thenReturn(true);
-        when(lagChecker.getLag("coupon-issued-events", "coupon-service")).thenReturn(42L);
+        when(lagChecker.getLag("coupon-issued-events", "coupon-issue-consumer-group")).thenReturn(42L);
 
         assertThatThrownBy(() -> service.recover(2L))
                 .isInstanceOf(VerificationNotAllowedException.class)
                 .hasMessageContaining("42");
 
-        // lag 때문에 막힌 경우 Redis SET/DEL을 절대 건드리면 안 된다 (락 관련 호출은 예외)
+        // lag 때문에 막힌 경우 staging/finalize 등 실제 데이터 작업을 절대 건드리면 안 된다.
         verify(redisTemplate, never()).opsForSet();
+        verify(redisTemplate, never()).execute(eq(recoveryFinalizeScript), any(), any());
     }
 
     @Test
@@ -93,7 +116,7 @@ class RedisRecoveryServiceTest {
         when(couponPolicyRepository.findByIdAndDeletedAtIsNull(3L)).thenReturn(Optional.of(policy));
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.setIfAbsent(eq("recover:lock:3"), anyString(), any(Duration.class))).thenReturn(true);
-        when(lagChecker.getLag("coupon-issued-events", "coupon-service")).thenReturn(-1L);
+        when(lagChecker.getLag("coupon-issued-events", "coupon-issue-consumer-group")).thenReturn(-1L);
 
         assertThatThrownBy(() -> service.recover(3L))
                 .isInstanceOf(VerificationNotAllowedException.class);
@@ -119,15 +142,39 @@ class RedisRecoveryServiceTest {
     }
 
     @Test
-    void 발급된_유저가_없으면_issued_SET에_추가_호출을_하지_않는다() {
+    void 발급된_유저가_없으면_staging_SET에_추가_호출을_하지_않고_실제_issued_키를_비운다() {
         when(policy.getId()).thenReturn(5L);
         when(policy.getTotalQuantity()).thenReturn(50);
-        when(couponIssueRepository.countByCouponPolicyId(5L)).thenReturn(0L);
         when(couponIssueRepository.findUserIdsByCouponPolicyId(5L)).thenReturn(List.of());
-        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
 
-        service.syncPolicyRedisState(policy, 0L);
+        RedisRecoverResponse response = service.syncPolicyRedisState(policy, 0L);
 
+        assertThat(response.issuedCount()).isZero();
+        assertThat(response.remainingStock()).isEqualTo(50);
         verify(redisTemplate, never()).opsForSet();
+        verify(redisTemplate).execute(
+                eq(recoveryFinalizeScript),
+                eq(List.of("coupon:policy:5:stock", "coupon:policy:5:reserved",
+                        "coupon:policy:5:issued", "coupon:policy:5:issued:staging")),
+                eq("50"));
+    }
+
+    @Test
+    void staging_구성중_새_발급이_반영되면_낡은_스냅샷으로_finalize하지_않고_중단한다() {
+        when(policy.getId()).thenReturn(6L);
+        when(policy.getTotalQuantity()).thenReturn(100);
+        when(redisTemplate.opsForSet()).thenReturn(setOperations);
+        // 1번째 호출(초기 스냅샷) = 3명, 2번째 호출(finalize 직전 재확인) = 4명으로 바뀜
+        when(couponIssueRepository.findUserIdsByCouponPolicyId(6L))
+                .thenReturn(List.of(10L, 20L, 30L))
+                .thenReturn(List.of(10L, 20L, 30L, 40L));
+
+        assertThatThrownBy(() -> service.syncPolicyRedisState(policy, 0L))
+                .isInstanceOf(VerificationNotAllowedException.class)
+                .hasMessageContaining("3")
+                .hasMessageContaining("4");
+
+        // 스냅샷이 낡은 걸 확인한 뒤이므로 실제 키 교체는 절대 실행하면 안 된다.
+        verify(redisTemplate, never()).execute(eq(recoveryFinalizeScript), any(), any());
     }
 }

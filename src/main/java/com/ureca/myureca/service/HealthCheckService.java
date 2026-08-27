@@ -46,7 +46,8 @@ public class HealthCheckService {
 
     private static final int DB_VALIDATION_TIMEOUT_SECONDS = 2;
     private static final long KAFKA_DESCRIBE_TIMEOUT_MS = 2000;
-    private static final long PER_CHECK_TIMEOUT_MS = 3000;
+    // Redis 커맨드 타임아웃(spring.data.redis.timeout=1s) + 소켓 연결 타임아웃(500ms)을 감안한 여유값.
+    private static final long PER_CHECK_TIMEOUT_MS = 1500;
     private static final long CACHE_TTL_MS = 2000;
 
     private final DataSourceProperties dataSourceProperties;

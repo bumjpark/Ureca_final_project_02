@@ -64,7 +64,7 @@ class CouponUseServiceTest {
         CouponUseResponse response = couponUseService.changeStatus(
                 ISSUE_ID, KEY, new CouponUseRequest(OWNER_ID, IssueStatus.USED, null));
 
-        assertThat(response.prevStatus()).isEqualTo(IssueStatus.ISSUED);
+        assertThat(response.prevStatus()).isEqualTo(HistoryPrevStatus.ISSUED);
         assertThat(response.status()).isEqualTo(IssueStatus.USED);
         assertThat(response.usedAt()).isNotNull();
         assertThat(response.replayed()).isFalse();

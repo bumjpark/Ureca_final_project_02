@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 public class QueueAdmissionService {
 
     private final StringRedisTemplate redisTemplate;
+    private final QueueSseService queueSseService;
 
     /** 토큰 유효 시간(초). 기본 60초. */
     @Value("${coupon.queue.token-ttl-seconds:60}")
@@ -62,7 +63,9 @@ public class QueueAdmissionService {
             return 0;
         }
 
-        // 3. Redis Pipelining으로 활성 토큰 및 유저 매핑 초고속 일괄 등록
+        java.util.Map<Long, String> admittedTokens = new java.util.HashMap<>();
+
+        // 4. Redis Pipelining으로 활성 토큰 및 유저 매핑 초고속 일괄 등록
         redisTemplate.executePipelined(new SessionCallback<>() {
             @Override
             @SuppressWarnings("unchecked")
@@ -74,6 +77,7 @@ public class QueueAdmissionService {
                     }
                     Long userId = Long.parseLong(userIdStr);
                     String activeToken = UUID.randomUUID().toString().replace("-", "");
+                    admittedTokens.put(userId, activeToken);
 
                     String tokenKey = RedisKeys.activeToken(activeToken);
                     String userKey = RedisKeys.activeUser(policyId, userId);
@@ -86,6 +90,11 @@ public class QueueAdmissionService {
                 return null;
             }
         });
+
+        // 5. SSE(Server-Sent Events) 실시간 푸시: 대기 중인 유저 브라우저에 activeToken 즉시 전달
+        for (java.util.Map.Entry<Long, String> entry : admittedTokens.entrySet()) {
+            queueSseService.sendAdmitted(policyId, entry.getKey(), entry.getValue());
+        }
 
         int admittedCount = poppedUsers.size();
         log.info("대기열 입장 처리 완료: policyId={}, admittedCount={}", policyId, admittedCount);

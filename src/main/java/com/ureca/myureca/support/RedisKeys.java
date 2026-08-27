@@ -26,6 +26,11 @@ public final class RedisKeys {
         return couponPolicyPrefix(policyId) + ":issued";
     }
 
+    /** Redis 재구성(완전 유실 복구, E) 중간 산출물. 다 채운 뒤 issued 키로 원자적 교체(RENAME)한다. */
+    public static String couponIssuedStaging(Long policyId) {
+        return couponPolicyPrefix(policyId) + ":issued:staging";
+    }
+
     /** 대기열 ZSET: score = 진입 순번(seq), member = userId */
     public static String couponQueue(Long policyId) {
         return couponPolicyPrefix(policyId) + ":queue";

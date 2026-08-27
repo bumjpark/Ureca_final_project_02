@@ -10,14 +10,6 @@ import org.springframework.stereotype.Service;
 
 /**
  * 대기열 통과 토큰(activeToken) 소비 서비스.
- *
- * <p>consume_token.lua 를 통해 GET+validate+DEL 을 원자적으로 실행한다.
- * 이를 통해 세 가지를 보장한다:
- * <ol>
- *   <li>TOCTOU 경쟁 없음: GET 후 DEL 사이의 틈새 중복 소비 원천 차단</li>
- *   <li>토큰 소유자 검증: 다른 userId 가 토큰을 도용해 발급 요청하는 것을 차단</li>
- *   <li>활성 유저 역방향 키(active_user) 동시 제거로 상태 정합성 보장</li>
- * </ol>
  */
 @Slf4j
 @Service
