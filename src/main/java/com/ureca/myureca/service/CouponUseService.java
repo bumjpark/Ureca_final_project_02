@@ -2,6 +2,7 @@ package com.ureca.myureca.service;
 
 import com.ureca.myureca.domain.coupon.CouponHistory;
 import com.ureca.myureca.domain.coupon.CouponIssue;
+import com.ureca.myureca.domain.coupon.HistoryPrevStatus;
 import com.ureca.myureca.domain.coupon.IssueStatus;
 import com.ureca.myureca.dto.request.CouponUseRequest;
 import com.ureca.myureca.dto.response.CouponUseResponse;
@@ -84,11 +85,12 @@ public class CouponUseService {
 
         // 5. 감사 로그. UNIQUE(request_id) 가 동시 중복 요청의 최후 방어선이다.
         //    벌크 UPDATE 가 영속성 컨텍스트를 비웠으므로 FK 용 참조를 새로 얻는다.
+        HistoryPrevStatus prevStatus = HistoryPrevStatus.valueOf(transition.from().name());
         try {
             couponHistoryRepository.saveAndFlush(new CouponHistory(
                     couponIssueRepository.getReferenceById(couponIssueId),
                     requestId,
-                    transition.from(),
+                    prevStatus,
                     transition.to(),
                     request.reason()));
         } catch (DataIntegrityViolationException e) {
@@ -101,7 +103,7 @@ public class CouponUseService {
                 couponIssueId, transition.from(), transition.to(), requestId);
 
         return CouponUseResponse.applied(
-                couponIssueId, receiptId, transition.from(), transition.to(), usedAt);
+                couponIssueId, receiptId, prevStatus, transition.to(), usedAt);
     }
 
     private void requireSameRequest(CouponHistory history, Long couponIssueId, CouponUseRequest request) {

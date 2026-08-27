@@ -17,6 +17,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.ureca.myureca.domain.coupon.HistoryPrevStatus;
 import com.ureca.myureca.domain.coupon.IssueStatus;
 import com.ureca.myureca.dto.request.CouponUseRequest;
 import com.ureca.myureca.dto.response.CouponUseResponse;
@@ -52,7 +53,7 @@ class CouponUseControllerTest {
     void 사용취소_200() throws Exception {
         when(couponUseService.changeStatus(anyLong(), anyString(), any(CouponUseRequest.class)))
                 .thenReturn(CouponUseResponse.applied(
-                        1L, "rcpt_abcdef0123456789", IssueStatus.USED, IssueStatus.ISSUED, null));
+                        1L, "rcpt_abcdef0123456789", HistoryPrevStatus.USED, IssueStatus.ISSUED, null));
 
         mockMvc.perform(post(URL)
                         .header("Idempotency-Key", KEY)
