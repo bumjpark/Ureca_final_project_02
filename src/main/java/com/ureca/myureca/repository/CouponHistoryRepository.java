@@ -2,6 +2,8 @@ package com.ureca.myureca.repository;
 
 import com.ureca.myureca.domain.coupon.CouponHistory;
 import java.util.List;
+import java.util.Optional;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -24,4 +26,7 @@ public interface CouponHistoryRepository extends JpaRepository<CouponHistory, Lo
             + "from CouponHistory h where h.couponIssue.couponPolicy.id = :policyId "
             + "order by h.couponIssue.id asc, h.id asc")
     List<CouponHistoryStatusSnapshot> findStatusSnapshotsByCouponPolicyId(@Param("policyId") Long policyId);
+    
+    @EntityGraph(attributePaths = {"couponIssue", "couponIssue.user"})
+    Optional<CouponHistory> findByRequestId(String requestId);
 }
