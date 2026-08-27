@@ -48,10 +48,6 @@ public class CouponPolicy {
     @Column(name = "total_quantity", nullable = false)
     private Integer totalQuantity;
 
-    /** 실시간 카운터가 아닌, 검증 배치가 사후에 채워넣는 조회/스냅샷 전용 값. */
-    @Column(name = "issued_quantity", nullable = false)
-    private Integer issuedQuantity = 0;
-
     @Column(name = "open_at", nullable = false)
     private LocalDateTime openAt;
 
@@ -82,14 +78,8 @@ public class CouponPolicy {
         this.couponType = couponType;
         this.discountValue = discountValue;
         this.totalQuantity = totalQuantity;
-        this.issuedQuantity = 0;
         this.openAt = openAt;
         this.closeAt = closeAt;
-    }
-
-    /** 검증 배치가 DB 발급 집계 수량으로 스냅샷을 동기화할 때 사용한다. */
-    public void syncIssuedQuantity(int issuedQuantity) {
-        this.issuedQuantity = issuedQuantity;
     }
 
     /** 정책 오픈 전 수정에 사용한다. */

@@ -49,7 +49,7 @@ class CouponPolicyControllerTest {
                 // 저장된 것처럼 id를 부여한 새 응답 (record라 필드 재구성)
                 CouponPolicyResponse responseWithId = new CouponPolicyResponse(
                                 1L, response.title(), response.couponType(), response.discountValue(),
-                                response.totalQuantity(), response.issuedQuantity(), response.openAt(),
+                                response.totalQuantity(), response.openAt(),
                                 response.closeAt(), response.createdAt(), response.updatedAt());
                 when(couponPolicyService.createCouponPolicy(any(CouponPolicyCreateRequest.class)))
                                 .thenReturn(responseWithId);
@@ -60,8 +60,7 @@ class CouponPolicyControllerTest {
                                 .andExpect(status().isCreated())
                                 .andExpect(header().string("Location", containsString("/api/admin/coupon-policies/1")))
                                 .andExpect(jsonPath("$.title").value("여름 휴가 쿠폰"))
-                                .andExpect(jsonPath("$.couponType").value("FIXED"))
-                                .andExpect(jsonPath("$.issuedQuantity").value(0));
+                                .andExpect(jsonPath("$.couponType").value("FIXED"));
         }
 
         @Test
