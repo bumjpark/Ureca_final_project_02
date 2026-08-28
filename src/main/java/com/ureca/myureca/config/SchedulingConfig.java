@@ -14,9 +14,10 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 @EnableScheduling
 public class SchedulingConfig {
 
-    /** 현재 {@code @Scheduled} 배치 4개(QueueAdmission, InfraHealthMonitor, RedisAutoRecovery,
-     *  ReconciliationAutoRetry) + 여유 1. 배치를 추가하면 이 값도 함께 올릴 것. */
-    @Value("${spring.task.scheduling.pool.size:5}")
+    /** 현재 {@code @Scheduled} 배치 5개(QueueAdmission, InfraHealthMonitor, RedisAutoRecovery,
+     *  ReconciliationAutoRetry, CouponPolicyCacheService의 notFoundCache 정리(#24)) + 여유 1.
+     *  배치를 추가하면 이 값도 함께 올릴 것. */
+    @Value("${spring.task.scheduling.pool.size:6}")
     private int poolSize;
 
     @Bean

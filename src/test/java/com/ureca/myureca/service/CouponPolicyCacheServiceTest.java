@@ -122,4 +122,37 @@ class CouponPolicyCacheServiceTest {
         assertThat(result).isNotNull();
         verify(couponPolicyRepository, times(2)).findByIdAndDeletedAtIsNull(999L);
     }
+
+    @Test
+    void 만료된_negative_cache_엔트리는_정리_스케줄러가_제거한다() {
+        // 이슈 #24: isExpired()는 조회 시점에만 체크되고 실제 제거는 조회 성공/evict()에서만
+        // 일어나므로, 존재하지 않는 ID를 계속 다르게 찔러보면 엔트리가 영구히 쌓인다.
+        // evictExpiredNotFoundEntries()가 TTL 지난 엔트리를 직접 청소하는지 검증한다.
+        when(couponPolicyRepository.findByIdAndDeletedAtIsNull(999L)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> cacheService.getPolicy(999L)).isInstanceOf(CouponPolicyNotFoundException.class);
+
+        @SuppressWarnings("unchecked")
+        java.util.Map<Long, Long> notFoundCache =
+                (java.util.Map<Long, Long>) ReflectionTestUtils.getField(cacheService, "notFoundCache");
+        assertThat(notFoundCache).containsKey(999L);
+
+        // TTL(5초)이 이미 지난 것처럼 캐싱 시각을 과거로 조작
+        notFoundCache.put(999L, System.currentTimeMillis() - 10_000L);
+
+        cacheService.evictExpiredNotFoundEntries();
+
+        assertThat(notFoundCache).doesNotContainKey(999L);
+    }
+
+    @Test
+    void 만료되지_않은_negative_cache_엔트리는_정리_스케줄러가_건드리지_않는다() {
+        when(couponPolicyRepository.findByIdAndDeletedAtIsNull(999L)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> cacheService.getPolicy(999L)).isInstanceOf(CouponPolicyNotFoundException.class);
+
+        cacheService.evictExpiredNotFoundEntries();
+
+        assertThatThrownBy(() -> cacheService.getPolicy(999L)).isInstanceOf(CouponPolicyNotFoundException.class);
+        // 방금 캐싱된 엔트리라 아직 만료 전 — DB는 여전히 최초 1번만 조회돼야 한다
+        verify(couponPolicyRepository, times(1)).findByIdAndDeletedAtIsNull(999L);
+    }
 }

@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 /**
@@ -119,5 +120,22 @@ public class CouponPolicyCacheService {
         notFoundCache.remove(policyId);
         cachedActivePolicies = null;
         log.debug("CouponPolicy cache evicted. policyId={}", policyId);
+    }
+
+    /**
+     * 이슈 #24: {@code notFoundCache}는 {@code isExpired()}를 조회 시점에만 체크하고, 실제
+     * 엔트리 제거는 그 policyId가 나중에 조회 성공하거나(:76) {@link #evict}될 때만 일어난다.
+     * 존재하지 않는 policyId는 둘 중 어느 경로도 안 타므로 엔트리가 영구히 남는다 — 오타/스캐닝성
+     * 요청이 서로 다른 존재하지 않는 ID를 계속 찔러보면(예: 순차 스캐닝) DB는 지켜지지만 힙이
+     * 무한 증가하는 새로운 자원 고갈로 바뀐다. 만료된 엔트리를 주기적으로 청소해 이를 방지한다.
+     */
+    @Scheduled(fixedDelayString = "${coupon.policy-cache.not-found-cleanup-interval-ms:60000}")
+    public void evictExpiredNotFoundEntries() {
+        int before = notFoundCache.size();
+        notFoundCache.entrySet().removeIf(entry -> isExpired(entry.getValue()));
+        int removed = before - notFoundCache.size();
+        if (removed > 0) {
+            log.debug("CouponPolicy negative cache 만료 엔트리 {}건 정리 (남은 {}건)", removed, notFoundCache.size());
+        }
     }
 }
