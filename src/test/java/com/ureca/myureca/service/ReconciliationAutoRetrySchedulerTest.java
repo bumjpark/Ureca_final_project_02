@@ -1,6 +1,7 @@
 package com.ureca.myureca.service;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -65,26 +66,26 @@ class ReconciliationAutoRetrySchedulerTest {
 
     @Test
     void EVENT_REPUBLISH와_DLT_REPROCESS_둘_다_대상으로_조회한다() {
-        when(reconciliationLogRepository.findByTypeAndStatusInOrderByCreatedAtAsc(
-                eq(ReconciliationType.EVENT_REPUBLISH), any(), any())).thenReturn(List.of());
-        when(reconciliationLogRepository.findByTypeAndStatusInOrderByCreatedAtAsc(
-                eq(ReconciliationType.DLT_REPROCESS), any(), any())).thenReturn(List.of());
+        when(reconciliationLogRepository.findByTypeAndStatusInAndRetryCountLessThanOrderByCreatedAtAsc(
+                eq(ReconciliationType.EVENT_REPUBLISH), any(), anyInt(), any())).thenReturn(List.of());
+        when(reconciliationLogRepository.findByTypeAndStatusInAndRetryCountLessThanOrderByCreatedAtAsc(
+                eq(ReconciliationType.DLT_REPROCESS), any(), anyInt(), any())).thenReturn(List.of());
 
         scheduler.retryPendingAndFailed();
 
-        verify(reconciliationLogRepository).findByTypeAndStatusInOrderByCreatedAtAsc(
-                eq(ReconciliationType.EVENT_REPUBLISH), any(), any());
-        verify(reconciliationLogRepository).findByTypeAndStatusInOrderByCreatedAtAsc(
-                eq(ReconciliationType.DLT_REPROCESS), any(), any());
+        verify(reconciliationLogRepository).findByTypeAndStatusInAndRetryCountLessThanOrderByCreatedAtAsc(
+                eq(ReconciliationType.EVENT_REPUBLISH), any(), anyInt(), any());
+        verify(reconciliationLogRepository).findByTypeAndStatusInAndRetryCountLessThanOrderByCreatedAtAsc(
+                eq(ReconciliationType.DLT_REPROCESS), any(), anyInt(), any());
     }
 
     @Test
     void PENDING_FAILED_건은_dispatch를_호출한다() {
         ReconciliationLog target = logWithRetryCount(1L, ReconciliationType.EVENT_REPUBLISH, 0);
-        when(reconciliationLogRepository.findByTypeAndStatusInOrderByCreatedAtAsc(
-                eq(ReconciliationType.EVENT_REPUBLISH), any(), any())).thenReturn(List.of(target));
-        when(reconciliationLogRepository.findByTypeAndStatusInOrderByCreatedAtAsc(
-                eq(ReconciliationType.DLT_REPROCESS), any(), any())).thenReturn(List.of());
+        when(reconciliationLogRepository.findByTypeAndStatusInAndRetryCountLessThanOrderByCreatedAtAsc(
+                eq(ReconciliationType.EVENT_REPUBLISH), any(), anyInt(), any())).thenReturn(List.of(target));
+        when(reconciliationLogRepository.findByTypeAndStatusInAndRetryCountLessThanOrderByCreatedAtAsc(
+                eq(ReconciliationType.DLT_REPROCESS), any(), anyInt(), any())).thenReturn(List.of());
         when(reconciliationRetryTrigger.dispatch(1L)).thenReturn(null);
 
         scheduler.retryPendingAndFailed();
@@ -92,28 +93,51 @@ class ReconciliationAutoRetrySchedulerTest {
         verify(reconciliationRetryTrigger, times(1)).dispatch(1L);
     }
 
+    /**
+     * 재시도 소진 건 제외는 반드시 DB 조회 조건이어야 한다 — 조회 후 자바에서 거르면, 소진된 행이
+     * PENDING/FAILED 상태로 남아 {@code created_at ASC} 선두를 영구히 점유하다가 페이지 크기만큼
+     * 쌓이는 순간 정상 대상이 조회조차 되지 않아 자동 재처리가 통째로 멈춘다.
+     */
     @Test
-    void 최대_재시도_횟수를_넘은_건은_dispatch를_호출하지_않는다() {
-        ReconciliationLog exhausted = logWithRetryCount(2L, ReconciliationType.EVENT_REPUBLISH, 5);
-        when(reconciliationLogRepository.findByTypeAndStatusInOrderByCreatedAtAsc(
-                eq(ReconciliationType.EVENT_REPUBLISH), any(), any())).thenReturn(List.of(exhausted));
-        when(reconciliationLogRepository.findByTypeAndStatusInOrderByCreatedAtAsc(
-                eq(ReconciliationType.DLT_REPROCESS), any(), any())).thenReturn(List.of());
+    void 재시도_소진_건_제외는_자바_필터가_아니라_DB_조회_조건으로_넘어간다() {
+        when(reconciliationLogRepository.findByTypeAndStatusInAndRetryCountLessThanOrderByCreatedAtAsc(
+                any(), any(), anyInt(), any())).thenReturn(List.of());
 
         scheduler.retryPendingAndFailed();
 
-        verify(reconciliationRetryTrigger, never()).dispatch(2L);
+        org.mockito.ArgumentCaptor<Integer> limitCaptor = org.mockito.ArgumentCaptor.forClass(Integer.class);
+        verify(reconciliationLogRepository, times(2))
+                .findByTypeAndStatusInAndRetryCountLessThanOrderByCreatedAtAsc(
+                        any(), any(), limitCaptor.capture(), any());
+        org.assertj.core.api.Assertions.assertThat(limitCaptor.getAllValues())
+                .as("MAX_AUTO_RETRY_COUNT가 쿼리 조건으로 전달되어야 한다")
+                .containsOnly(5);
+    }
+
+    @Test
+    void 페이지가_소진된_건으로_가득_차도_정상_대상은_계속_조회된다() {
+        // 소진 건은 쿼리에서 이미 걸러지므로, 스케줄러가 받는 목록에는 정상 대상만 담긴다.
+        ReconciliationLog fresh = logWithRetryCount(10L, ReconciliationType.EVENT_REPUBLISH, 0);
+        when(reconciliationLogRepository.findByTypeAndStatusInAndRetryCountLessThanOrderByCreatedAtAsc(
+                eq(ReconciliationType.EVENT_REPUBLISH), any(), anyInt(), any())).thenReturn(List.of(fresh));
+        when(reconciliationLogRepository.findByTypeAndStatusInAndRetryCountLessThanOrderByCreatedAtAsc(
+                eq(ReconciliationType.DLT_REPROCESS), any(), anyInt(), any())).thenReturn(List.of());
+        when(reconciliationRetryTrigger.dispatch(10L)).thenReturn(null);
+
+        scheduler.retryPendingAndFailed();
+
+        verify(reconciliationRetryTrigger, times(1)).dispatch(10L);
     }
 
     @Test
     void dispatch가_예외를_던져도_나머지_건_처리를_막지_않는다() {
         ReconciliationLog alreadySucceeded = logWithRetryCount(3L, ReconciliationType.EVENT_REPUBLISH, 1);
         ReconciliationLog normal = logWithRetryCount(4L, ReconciliationType.EVENT_REPUBLISH, 1);
-        when(reconciliationLogRepository.findByTypeAndStatusInOrderByCreatedAtAsc(
-                eq(ReconciliationType.EVENT_REPUBLISH), any(), any()))
+        when(reconciliationLogRepository.findByTypeAndStatusInAndRetryCountLessThanOrderByCreatedAtAsc(
+                eq(ReconciliationType.EVENT_REPUBLISH), any(), anyInt(), any()))
                 .thenReturn(List.of(alreadySucceeded, normal));
-        when(reconciliationLogRepository.findByTypeAndStatusInOrderByCreatedAtAsc(
-                eq(ReconciliationType.DLT_REPROCESS), any(), any())).thenReturn(List.of());
+        when(reconciliationLogRepository.findByTypeAndStatusInAndRetryCountLessThanOrderByCreatedAtAsc(
+                eq(ReconciliationType.DLT_REPROCESS), any(), anyInt(), any())).thenReturn(List.of());
         when(reconciliationRetryTrigger.dispatch(3L))
                 .thenThrow(new ReconciliationAlreadySucceededException(3L));
         when(reconciliationRetryTrigger.dispatch(4L)).thenReturn((ReconciliationLogResponse) null);
@@ -133,14 +157,15 @@ class ReconciliationAutoRetrySchedulerTest {
 
         scheduler.retryPendingAndFailed();
 
-        verify(reconciliationLogRepository, never()).findByTypeAndStatusInOrderByCreatedAtAsc(any(), any(), any());
+        verify(reconciliationLogRepository, never())
+                .findByTypeAndStatusInAndRetryCountLessThanOrderByCreatedAtAsc(any(), any(), anyInt(), any());
         verify(reconciliationRetryTrigger, never()).dispatch(any());
     }
 
     @Test
     void EVENT_REPUBLISH와_DLT_REPROCESS는_서로_다른_락_키를_사용한다() {
-        when(reconciliationLogRepository.findByTypeAndStatusInOrderByCreatedAtAsc(any(), any(), any()))
-                .thenReturn(List.of());
+        when(reconciliationLogRepository.findByTypeAndStatusInAndRetryCountLessThanOrderByCreatedAtAsc(
+                any(), any(), anyInt(), any())).thenReturn(List.of());
 
         scheduler.retryPendingAndFailed();
 

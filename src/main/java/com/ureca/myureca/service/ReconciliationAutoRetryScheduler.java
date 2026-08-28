@@ -77,13 +77,18 @@ public class ReconciliationAutoRetryScheduler {
         }
     }
 
+    /**
+     * {@code retryCount} 한도를 DB 조회 조건으로 넘긴다 — 조회 후 자바에서 거르면 안 된다.
+     * 재시도를 다 소진한 행은 PENDING/FAILED 상태 그대로 남아 {@code created_at ASC} 선두를
+     * 영구히 차지하므로, 그런 행이 {@link #MAX_BATCH_SIZE_PER_TICK}만큼 쌓이면 페이지가 통째로
+     * 소진된 행으로만 채워져 뒤에 들어온 정상 대상이 영원히 조회되지 않는다(= 자동 재처리가
+     * 조용히 완전 정지). 자세한 배경은 리포지토리 메서드 주석 참고.
+     */
     private void retryType(ReconciliationType type) {
         List<ReconciliationLog> targets = reconciliationLogRepository
-                .findByTypeAndStatusInOrderByCreatedAtAsc(
-                        type, RETRYABLE_STATUSES, PageRequest.of(0, MAX_BATCH_SIZE_PER_TICK))
-                .stream()
-                .filter(log -> log.getRetryCount() < MAX_AUTO_RETRY_COUNT)
-                .toList();
+                .findByTypeAndStatusInAndRetryCountLessThanOrderByCreatedAtAsc(
+                        type, RETRYABLE_STATUSES, MAX_AUTO_RETRY_COUNT,
+                        PageRequest.of(0, MAX_BATCH_SIZE_PER_TICK));
 
         for (ReconciliationLog target : targets) {
             retryOne(target);
