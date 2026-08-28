@@ -56,7 +56,7 @@ spring:
   task:
     scheduling:
       pool:
-        size: ${SCHEDULING_POOL_SIZE:4}
+        size: ${SCHEDULING_POOL_SIZE:5}
 
   # ---------- Kafka ----------
   kafka:
@@ -105,6 +105,14 @@ coupon:
     # RedisAutoRecoveryScheduler: 열려 있는 정책 중 stock 키가 없는 것을 이 주기로 찾아
     # 자동 recover 한다 (최초 오픈 초기화 + lag 실패 후 재시도 + 여러 정책 일괄 처리를 겸함).
     auto-interval-ms: ${COUPON_REDIS_RECOVERY_AUTO_INTERVAL_MS:5000}
+
+  # ---------- 정합성 재처리 큐 자동화 (이슈 #2/#3) ----------
+  reconciliation:
+    # ReconciliationAutoRetryScheduler: EVENT_REPUBLISH(Kafka 발행 실패)/DLT_REPROCESS(컨슈머
+    # 최종 실패) 상태의 PENDING/FAILED 건을 사람 개입 없이 이 주기로 재발행한다.
+    # 60초로 넉넉히 잡은 이유: 직전 재시도의 Kafka ack(whenComplete)가 아직 안 돌아왔는데
+    # 같은 건을 또 재시도하면 불필요한 중복 발행이 생긴다(멱등성 덕에 안전하긴 하지만 낭비).
+    auto-retry-interval-ms: ${COUPON_RECONCILIATION_AUTO_RETRY_INTERVAL_MS:60000}
 
 # ---------- 인프라 헬스체크 모니터링 ----------
 infra:
