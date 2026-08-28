@@ -25,8 +25,12 @@ public class HealthCheckConfig {
      *
      * <p>이 프로젝트는 {@code KafkaProducerConfig}처럼 Kafka를 Boot 자동설정에 기대지 않고
      * {@code spring.kafka.bootstrap-servers} 값을 직접 주입받아 수동으로 구성하는 방식을
-     * 쓰고 있어서, {@code KafkaAdmin} 빈이 애초에 존재하지 않는다. 같은 관례를 따라
-     * bootstrap-servers를 직접 주입받는다.</p>
+     * 쓴다. 같은 관례를 따라 bootstrap-servers를 직접 주입받는다.</p>
+     *
+     * <p>2026-08-28 갱신: {@code KafkaAdmin} 빈은 이 클래스가 작성될 당시엔 정말 없었지만,
+     * 지금은 {@link KafkaTopicConfig}가 토픽 파티션 수 영속화를 위해 별도로(같은 수동 구성
+     * 관례로) 등록해뒀다. 이 AdminClient는 그것과는 별개로, 헬스체크 전용 짧은 타임아웃
+     * 설정을 위해 여전히 직접 만들어 쓴다.</p>
      *
      * <p>{@code request.timeout.ms}/{@code default.api.timeout.ms}를 짧게 못박아 둔다.
      * 기본값(120초)을 그대로 두면, 브로커가 응답 없을 때 내부적으로 재시도가 오래 걸리다가

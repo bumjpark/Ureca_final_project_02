@@ -1,7 +1,9 @@
 package com.ureca.myureca.service;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -10,6 +12,8 @@ import static org.mockito.Mockito.when;
 import com.ureca.myureca.dto.response.ComponentHealthResponse;
 import com.ureca.myureca.dto.response.HealthResponse;
 import com.ureca.myureca.support.OpsAlertNotifier;
+import com.ureca.myureca.support.RedisKeys;
+import java.time.Duration;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -17,6 +21,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 
 @ExtendWith(MockitoExtension.class)
 class InfraHealthMonitorSchedulerTest {
@@ -25,6 +31,10 @@ class InfraHealthMonitorSchedulerTest {
     private HealthCheckService healthCheckService;
     @Mock
     private OpsAlertNotifier opsAlertNotifier;
+    @Mock
+    private StringRedisTemplate redisTemplate;
+    @Mock
+    private ValueOperations<String, String> valueOperations;
 
     @InjectMocks
     private InfraHealthMonitorScheduler scheduler;
@@ -41,6 +51,10 @@ class InfraHealthMonitorSchedulerTest {
 
     @BeforeEach
     void setUp() {
+        // 대부분의 테스트는 "이 인스턴스가 락을 획득해서 알림을 실제로 보낸다" 시나리오를 검증하므로
+        // 기본값을 락 획득 성공(true)으로 깔아둔다. 락 경합 자체를 검증하는 테스트는 개별적으로 오버라이드.
+        lenient().when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        lenient().when(valueOperations.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenReturn(true);
     }
 
     @Test
@@ -88,5 +102,36 @@ class InfraHealthMonitorSchedulerTest {
 
         verify(opsAlertNotifier, times(1)).alert(eq("인프라 장애 감지"), anyString());
         verify(opsAlertNotifier, times(1)).alert(eq("인프라 복구됨"), anyString());
+    }
+
+    @Test
+    void 다른_인스턴스가_이미_락을_잡았으면_이_인스턴스는_알림을_보내지_않는다() {
+        when(healthCheckService.check()).thenReturn(HealthResponse.of(REDIS_DOWN));
+        when(valueOperations.setIfAbsent(eq(RedisKeys.lockAlert("infra-down")), anyString(), any(Duration.class)))
+                .thenReturn(false); // 다른 인스턴스가 이미 락을 잡음
+
+        scheduler.monitor();
+
+        verify(opsAlertNotifier, never()).alert(anyString(), anyString());
+    }
+
+    @Test
+    void 이_인스턴스가_락을_잡으면_alertKind별로_올바른_락_키를_사용한다() {
+        when(healthCheckService.check()).thenReturn(HealthResponse.of(REDIS_DOWN));
+
+        scheduler.monitor();
+
+        verify(valueOperations).setIfAbsent(eq(RedisKeys.lockAlert("infra-down")), anyString(), any(Duration.class));
+    }
+
+    @Test
+    void Redis_자체가_불안정해_락_획득이_예외를_던져도_알림은_보낸다() {
+        when(healthCheckService.check()).thenReturn(HealthResponse.of(REDIS_DOWN));
+        when(valueOperations.setIfAbsent(anyString(), anyString(), any(Duration.class)))
+                .thenThrow(new RuntimeException("Redis 연결 실패"));
+
+        scheduler.monitor(); // 락 획득 자체가 실패해도(=바로 그 인프라 장애 상황일 수 있음) 알림은 나가야 한다
+
+        verify(opsAlertNotifier, times(1)).alert(eq("인프라 장애 감지"), anyString());
     }
 }

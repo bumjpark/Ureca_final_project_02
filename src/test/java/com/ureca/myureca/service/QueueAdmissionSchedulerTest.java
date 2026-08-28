@@ -57,11 +57,15 @@ class QueueAdmissionSchedulerTest {
         when(valueOperations.setIfAbsent(eq(RedisKeys.lockAdmission(POLICY_ID)), eq("locked"), eq(1L), eq(TimeUnit.SECONDS)))
                 .thenReturn(true);
         when(valueOperations.get(RedisKeys.couponStock(POLICY_ID))).thenReturn("100");
-        when(queueLimitAdminService.calculateAutoScaledLimit(POLICY_ID, 100L)).thenReturn(500); // 동적 Limit 500
+        // 잔여 재고(100)를 같은 틱에서 읽은 값 그대로 스케일링 계산에 넘겨야 한다 — 두 번 읽으면
+        // 서로 다른 시점의 값이 섞이고, 재고 대비 안전 상한(이슈 #8)이 엉뚱한 기준으로 계산된다.
+        when(queueLimitAdminService.calculateAutoScaledLimit(POLICY_ID, 100L, 100L))
+                .thenReturn(500); // 동적 Limit 500
 
         scheduler.processQueueAdmission();
 
         verify(queueAdmissionService).admitUsers(POLICY_ID, 500);
+        verify(queueLimitAdminService).calculateAutoScaledLimit(POLICY_ID, 100L, 100L);
     }
 
     @Test

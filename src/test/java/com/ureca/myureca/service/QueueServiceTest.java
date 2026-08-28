@@ -36,6 +36,7 @@ class QueueServiceTest {
     @Mock private CouponPolicyCacheService couponPolicyCacheService;
     @Mock private QueueRateLimiter queueRateLimiter;
     @Mock private KafkaCouponEventProducer kafkaCouponEventProducer;
+    @Mock private QueueJoinLogWriter queueJoinLogWriter;
     @Mock private StringRedisTemplate redisTemplate;
     @Mock private RedisScript<List<Long>> joinQueueScript;
     @Mock private RedisScript<List<String>> getQueueStatusScript;
@@ -53,6 +54,7 @@ class QueueServiceTest {
                 couponPolicyCacheService,
                 queueRateLimiter,
                 kafkaCouponEventProducer,
+                queueJoinLogWriter,
                 redisTemplate,
                 joinQueueScript,
                 getQueueStatusScript
@@ -90,6 +92,22 @@ class QueueServiceTest {
         assertThat(eventCaptor.getValue().rank()).isEqualTo(5L);
         assertThat(eventCaptor.getValue().policyId()).isEqualTo(POLICY_ID);
         assertThat(eventCaptor.getValue().userId()).isEqualTo(USER_ID);
+
+        // 이슈 #12: queue_join_log에도 같은 seq(42, rank=5가 아님)로 비동기 적재를 위임해야 한다.
+        org.mockito.Mockito.verify(queueJoinLogWriter)
+                .recordAsync(eq(POLICY_ID), eq(USER_ID), eq(QueueStatus.WAITING), eq(42L), any(LocalDateTime.class));
+    }
+
+    @Test
+    void 즉시_입장_ADMITTED_케이스도_queueJoinLogWriter에_seq와_함께_적재를_위임한다() {
+        when(couponPolicyCacheService.getPolicy(POLICY_ID)).thenReturn(openPolicy);
+        when(redisTemplate.execute(eq(joinQueueScript), anyList(), anyString(), anyString()))
+                .thenReturn(List.of(201L, 0L, 0L, 7L));
+
+        queueService.joinQueue(new QueueJoinRequest(POLICY_ID, USER_ID));
+
+        org.mockito.Mockito.verify(queueJoinLogWriter)
+                .recordAsync(eq(POLICY_ID), eq(USER_ID), eq(QueueStatus.ADMITTED), eq(7L), any(LocalDateTime.class));
     }
 
     @Test

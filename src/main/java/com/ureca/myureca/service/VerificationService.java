@@ -15,12 +15,14 @@ import com.ureca.myureca.repository.CouponPolicyRepository;
 import com.ureca.myureca.repository.VerificationReportRepository;
 import com.ureca.myureca.support.RedisKeys;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
@@ -34,11 +36,19 @@ import org.springframework.transaction.annotation.Transactional;
  * 정합성 검증 배치 오케스트레이터. 접근 조건을 확인하고 대상 정책마다 PENDING 리포트를
  * 저장한 뒤 실제 비교 작업은 VerificationAsyncTrigger에 맡긴다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class VerificationService {
 
     private static final ZoneId ZONE = ZoneId.of("Asia/Seoul");
+
+    /**
+     * 이 시간을 넘겨 PENDING에 머문 리포트는 "실행 중"이 아니라 좀비로 간주한다({@link #isStale}).
+     * 정합성 검증 배치는 300만 건 규모에서도 분 단위로 끝나는 작업이라 10분이면 정상 실행분을
+     * 오판할 여지가 없고, 반대로 봉쇄가 10분 넘게 지속되지도 않는 절충점이다.
+     */
+    private static final Duration STALE_PENDING_THRESHOLD = Duration.ofMinutes(10);
 
     private final CouponPolicyRepository couponPolicyRepository;
     private final VerificationReportRepository verificationReportRepository;
@@ -148,7 +158,11 @@ public class VerificationService {
         Optional<VerificationReport> existingPending = verificationReportRepository
                 .findFirstByCouponPolicy_IdAndStatus(policy.getId(), VerificationStatus.PENDING);
         if (existingPending.isPresent()) {
-            return VerificationReportResponse.from(existingPending.get());
+            VerificationReport inFlight = existingPending.get();
+            if (!isStale(inFlight)) {
+                return VerificationReportResponse.from(inFlight);
+            }
+            expireStalePending(policy, inFlight);
         }
 
         VerificationReport pending = verificationReportRepository.save(
@@ -156,6 +170,39 @@ public class VerificationService {
         );
         asyncTrigger.execute(pending.getId());
         return VerificationReportResponse.from(pending);
+    }
+
+    /**
+     * PENDING 리포트가 정상 실행 중인 것인지, 영영 끝나지 않을 좀비인지 판단한다.
+     *
+     * <p>이 판단이 필요한 이유: PENDING 리포트가 하나라도 있으면 위 {@link #dispatch}는 새 검증을
+     * 접수하지 않는다. 즉 <b>PENDING에 갇힌 리포트 하나가 그 정책의 검증을 영구히 봉쇄한다.</b>
+     * 비동기 실행이 FAILED를 남기지 못하고 죽는 경로는 {@code VerificationAsyncTrigger}의
+     * 트랜잭션 분리로 막았지만, 그걸로도 못 막는 경우가 남는다 — 검증 도중 애플리케이션 자체가
+     * 죽으면(배포·OOM·컨테이너 재시작) FAILED를 남길 주체가 아예 사라진다. 그런 리포트는 재기동
+     * 후에도 영원히 PENDING이므로, 시간 기준 탈출구가 없으면 그 정책은 수동 DB 조작 없이는
+     * 다시는 검증할 수 없다.
+     */
+    private boolean isStale(VerificationReport pending) {
+        return pending.getRunAt() != null
+                && pending.getRunAt().isBefore(LocalDateTime.now(ZONE).minus(STALE_PENDING_THRESHOLD));
+    }
+
+    /** 좀비 PENDING을 FAILED로 확정해 길을 터준다. {@code runVerification}이 NOT_SUPPORTED라
+     *  활성 트랜잭션이 없으므로 더티체킹에 기대지 않고 명시적으로 저장한다. */
+    private void expireStalePending(CouponPolicy policy, VerificationReport stale) {
+        try {
+            stale.fail("이전 실행이 " + STALE_PENDING_THRESHOLD.toMinutes()
+                    + "분 넘게 PENDING에 머물러 좀비로 판단하고 종료했습니다 (실행 중 프로세스 종료 추정).");
+            verificationReportRepository.save(stale);
+            log.warn("정책 id={}의 PENDING 리포트(id={}, runAt={})가 {}분 넘게 방치돼 FAILED로 정리하고 "
+                            + "새 검증을 접수합니다.",
+                    policy.getId(), stale.getId(), stale.getRunAt(), STALE_PENDING_THRESHOLD.toMinutes());
+        } catch (Exception e) {
+            // 정리에 실패해도 새 검증 접수 자체는 막지 않는다 — 봉쇄를 푸는 게 목적이기 때문이다.
+            log.warn("정책 id={}의 좀비 PENDING 리포트(id={}) 정리에 실패했습니다.",
+                    policy.getId(), stale.getId(), e);
+        }
     }
 
     /**

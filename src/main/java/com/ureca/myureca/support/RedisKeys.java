@@ -46,6 +46,18 @@ public final class RedisKeys {
         return "lock:admission:" + policyId;
     }
 
+    /** 인프라 상태 전환 알림 중복 발송 방지 락 키 (다중 서버 인스턴스 환경에서 한 번의 상태
+     *  전환에 대해 알림을 한 번만 보내도록 조율). alertKind 예: "infra-down", "infra-up" */
+    public static String lockAlert(String alertKind) {
+        return "lock:alert:" + alertKind;
+    }
+
+    /** 정합성 재처리 자동 재시도 스케줄러 분산 락 키 (다중 서버 중복 실행 방어용, 이슈 #21).
+     *  type별로 분리해 EVENT_REPUBLISH/DLT_REPROCESS가 서로 다른 인스턴스에서 동시에 돌 수 있게 한다. */
+    public static String lockReconciliationRetry(String type) {
+        return "lock:reconciliation-retry:" + type;
+    }
+
     /** 특정 정책의 동적 대기열 처리 Limit 키 */
     public static String queueLimit(Long policyId) {
         return "queue:limit:" + policyId;

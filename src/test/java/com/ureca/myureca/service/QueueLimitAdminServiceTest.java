@@ -111,28 +111,67 @@ class QueueLimitAdminServiceTest {
         assertThat(effectiveLimit).isEqualTo(300);
     }
 
-    @Test
-    void 대기열_인원이_5000명_이상_급증하면_Limit이_2배로_자동_스케일링된다() {
+    /** 자동 스케일링 테스트용 — 정책별/글로벌 Limit 없이 기본값(300)으로 흐르게 한다. */
+    private void stubNoConfiguredLimit() {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.get(RedisKeys.queueLimit(POLICY_ID))).thenReturn(null);
         when(valueOperations.get(RedisKeys.queueDefaultLimit())).thenReturn(null);
+    }
 
-        // 기본 300 -> 5000명 대기 시 600
-        int autoLimit = limitAdminService.calculateAutoScaledLimit(POLICY_ID, 6000L);
+    @Test
+    void 대기열_인원이_5000명_이상_급증하면_Limit이_2배로_자동_스케일링된다() {
+        stubNoConfiguredLimit();
+
+        // 기본 300 -> 5000명 대기 시 600. 재고 100,000이라 5% 상한(5,000)에 걸리지 않는다.
+        int autoLimit = limitAdminService.calculateAutoScaledLimit(POLICY_ID, 6000L, 100_000L);
 
         assertThat(autoLimit).isEqualTo(600);
     }
 
     @Test
     void 대기열_인원이_10000명_이상_폭증하면_Limit이_3배로_자동_스케일링된다() {
-        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        when(valueOperations.get(RedisKeys.queueLimit(POLICY_ID))).thenReturn(null);
-        when(valueOperations.get(RedisKeys.queueDefaultLimit())).thenReturn(null);
+        stubNoConfiguredLimit();
 
-        // 기본 300 -> 12000명 대기 시 900
-        int autoLimit = limitAdminService.calculateAutoScaledLimit(POLICY_ID, 12000L);
+        // 기본 300 -> 12000명 대기 시 900. 재고 100,000이라 5% 상한(5,000)에 걸리지 않는다.
+        int autoLimit = limitAdminService.calculateAutoScaledLimit(POLICY_ID, 12000L, 100_000L);
 
         assertThat(autoLimit).isEqualTo(900);
+    }
+
+    /**
+     * 이슈 #8: 한 틱의 배치가 잔여 재고에 비해 크면 과다 입장 → 선착순 역전이 발생한다
+     * (실측: 재고 10,000에 2,000 = 20% → FCFS 역전 356쌍). 자동 스케일링이 그 구간까지
+     * 스스로 올라가지 못하도록 잔여 재고의 5%로 조인다.
+     */
+    @Test
+    void 자동_스케일링은_잔여_재고의_5퍼센트를_넘지_못한다() {
+        stubNoConfiguredLimit();
+
+        // 대기열 12,000명이면 원래 900이지만, 재고 10,000의 5% = 500으로 조여진다.
+        int autoLimit = limitAdminService.calculateAutoScaledLimit(POLICY_ID, 12000L, 10_000L);
+
+        assertThat(autoLimit).isEqualTo(500);
+    }
+
+    @Test
+    void 재고_대비_상한이_운영자가_설정한_기본_Limit보다_작아도_기본값_아래로는_깎지_않는다() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.get(RedisKeys.queueLimit(POLICY_ID))).thenReturn("300");
+
+        // 잔여 재고 1,000의 5% = 50이지만, 운영자가 명시한 300은 자동 가드가 건드리지 않는다.
+        int autoLimit = limitAdminService.calculateAutoScaledLimit(POLICY_ID, 12000L, 1_000L);
+
+        assertThat(autoLimit).isEqualTo(300);
+    }
+
+    @Test
+    void 잔여_재고를_알_수_없으면_자동_스케일링하지_않고_기본_Limit을_쓴다() {
+        stubNoConfiguredLimit();
+
+        // -1 = stock 키 미초기화/파싱 실패. 근거 없이 확장하지 않는다.
+        int autoLimit = limitAdminService.calculateAutoScaledLimit(POLICY_ID, 12000L, -1L);
+
+        assertThat(autoLimit).isEqualTo(300);
     }
 
     @Test

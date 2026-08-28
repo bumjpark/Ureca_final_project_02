@@ -207,6 +207,32 @@ class VerificationServiceTest {
         verify(asyncTrigger, never()).execute(anyLong());
     }
 
+    /**
+     * PENDING 리포트 하나가 그 정책의 검증을 영구히 봉쇄하는 것을 막는 탈출구. 검증 도중
+     * 애플리케이션이 죽으면 FAILED를 남길 주체가 사라져 리포트가 영원히 PENDING으로 남는데,
+     * 시간 기준 판정이 없으면 수동 DB 조작 없이는 그 정책을 다시 검증할 수 없다.
+     */
+    @Test
+    void 오래_방치된_PENDING_리포트는_FAILED로_정리하고_새_검증을_접수한다() {
+        CouponPolicy target = policy(1L);
+        VerificationReport zombie = VerificationReport.pending(target, LocalDateTime.now().minusHours(3));
+        ReflectionTestUtils.setField(zombie, "id", 777L);
+
+        when(couponPolicyRepository.findByDeletedAtIsNull()).thenReturn(List.of(target));
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.get("coupon:policy:1:stock")).thenReturn("0");
+        when(verificationReportRepository.findFirstByCouponPolicy_IdAndStatus(1L, VerificationStatus.PENDING))
+                .thenReturn(java.util.Optional.of(zombie));
+        when(verificationReportRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        List<VerificationReportResponse> responses = verificationService.runVerification(1L);
+
+        assertThat(zombie.getStatus()).isEqualTo(VerificationStatus.FAILED);
+        assertThat(responses).hasSize(1);
+        assertThat(responses.get(0).status()).isEqualTo(VerificationStatus.PENDING);
+        verify(asyncTrigger).execute(any());
+    }
+
     @Test
     void 순회_중_실패하면_이미_접수된_정책_목록을_담아_예외를_던진다() {
         CouponPolicy p1 = policy(1L);
