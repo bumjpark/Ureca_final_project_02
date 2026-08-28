@@ -1,8 +1,10 @@
 package com.ureca.myureca.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -113,5 +115,48 @@ class QueueAdmissionServiceTest {
 
         assertThat(admitted).isEqualTo(0);
         verify(redisTemplate, never()).executePipelined(any(SessionCallback.class));
+    }
+
+    @Test
+    void 토큰_발급_파이프라인이_실패하면_popMin된_유저를_원래_순번으로_되돌리고_예외를_다시_던진다() {
+        // 이슈 #22: popMin()은 이미 대기열에서 유저를 제거한 뒤라, 여기서 실패하면 보상(ZADD 원복)
+        // 없이는 유저가 흔적 없이 대기열에서 사라진다.
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
+        when(valueOperations.get(RedisKeys.couponStock(POLICY_ID))).thenReturn("500");
+
+        Set<TypedTuple<String>> popped = new HashSet<>();
+        popped.add(new DefaultTypedTuple<>("42", 10.0));
+        popped.add(new DefaultTypedTuple<>("43", 11.0));
+        when(zSetOperations.popMin(RedisKeys.couponQueue(POLICY_ID), 300)).thenReturn(popped);
+        doThrow(new RuntimeException("Redis 파이프라인 실패"))
+                .when(redisTemplate).executePipelined(any(SessionCallback.class));
+
+        assertThatThrownBy(() -> admissionService.admitUsers(POLICY_ID, 300))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("Redis 파이프라인 실패");
+
+        // 원래 스코어(seq) 그대로 되돌렸는지 확인 — 순서가 바뀌면 안 되므로 정확한 스코어로 검증
+        verify(zSetOperations).add(RedisKeys.couponQueue(POLICY_ID), "42", 10.0);
+        verify(zSetOperations).add(RedisKeys.couponQueue(POLICY_ID), "43", 11.0);
+    }
+
+    @Test
+    void 보상_ZADD_자체가_실패해도_원래_예외가_그대로_전파된다() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
+        when(valueOperations.get(RedisKeys.couponStock(POLICY_ID))).thenReturn("500");
+
+        Set<TypedTuple<String>> popped = new HashSet<>();
+        popped.add(new DefaultTypedTuple<>("42", 10.0));
+        when(zSetOperations.popMin(RedisKeys.couponQueue(POLICY_ID), 300)).thenReturn(popped);
+        doThrow(new RuntimeException("Redis 파이프라인 실패"))
+                .when(redisTemplate).executePipelined(any(SessionCallback.class));
+        doThrow(new RuntimeException("보상 ZADD도 실패"))
+                .when(zSetOperations).add(eq(RedisKeys.couponQueue(POLICY_ID)), eq("42"), eq(10.0));
+
+        assertThatThrownBy(() -> admissionService.admitUsers(POLICY_ID, 300))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("Redis 파이프라인 실패");
     }
 }
