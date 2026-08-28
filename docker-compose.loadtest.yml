@@ -1,0 +1,97 @@
+# 부하테스트용 오버레이. 기존 인프라(docker-compose.yml)에 app + k6 를 얹는다.
+# k6 는 profiles:[loadtest] 라 평소엔 안 뜬다.
+#
+#   C=("docker" "compose" "-f" "docker-compose.yml" "-f" "docker-compose.loadtest.yml")
+#
+#   # 1) 인프라 + 앱 기동
+#   "${C[@]}" up -d --build
+#
+#   # 2) k6 로 부하 실행 — 호스트 NAT 를 안 거치고 coupon-network 안에서 coupon-app:8080 직통.
+#   #    (호스트 localhost:8080 로 쏘면 conntrack/포트 고갈로 i/o timeout 이 났었음)
+#   "${C[@]}" --profile loadtest run --rm k6 run /scripts/burst-20k.js
+#   "${C[@]}" --profile loadtest run --rm -e PEAK=20000 -e POLICY_ID=1 k6 run /scripts/burst-20k.js
+#
+#   # 3) 정리
+#   "${C[@]}" down
+#
+# 20,000 VU 는 k6 만 20GB+ 를 쓸 수 있다. Docker Desktop → Settings → Resources 에서
+# 메모리를 최대한(12GB+) 올리고, 그래도 exit 137(OOM) 이면 PEAK 를 낮춰 이 머신의 한계를 찾는다.
+# loadtest/README.md 참고.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: coupon-app
+    restart: unless-stopped
+    ports:
+      - "${SERVER_PORT:-8080}:8080"
+    environment:
+      SERVER_PORT: 8080
+      # 호스트(KST)와 동일하게 — LocalDateTime 비교(openAt @Future 등)가 프론트와 어긋나지 않도록
+      TZ: Asia/Seoul
+      # 도커 네트워크 내부 호스트명으로 연결
+      DB_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      # 부하 상황에서 커넥션 풀 여유
+      DB_HIKARI_MAX_POOL_SIZE: ${DB_HIKARI_MAX_POOL_SIZE:-40}
+      # 20k 동시 요청이 대부분 Redis/큐 대기라 platform thread(max 1000)가 금방 고갈된다.
+      # 가상 스레드로 전환하면 요청이 스레드를 점유하지 않아 "뒤로 갈수록 느려짐"이 크게 완화된다.
+      SPRING_THREADS_VIRTUAL_ENABLED: "true"
+      # Lettuce 풀도 넉넉히 (기본 200)
+      SPRING_DATA_REDIS_LETTUCE_POOL_MAX_ACTIVE: "500"
+      SPRING_DATA_REDIS_LETTUCE_POOL_MAX_IDLE: "200"
+      JAVA_OPTS: "-XX:MaxRAMPercentage=70 -XX:+UseG1GC"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    networks:
+      - coupon-network
+    # 20k VU 부하에서 JVM 이 OOM 으로 재시작되지 않도록 넉넉히
+    # (JAVA_OPTS 의 MaxRAMPercentage=70 → 힙 최대 ~2.8g)
+    mem_limit: 4g
+
+  # 부하테스트 전용. 호스트 NAT(포트포워딩) 를 거치지 않고 coupon-network 안에서
+  # coupon-app:8080 으로 직접 통신 → conntrack/ephemeral-port 고갈로 인한 i/o timeout 제거.
+  #   docker compose -f docker-compose.yml -f docker-compose.loadtest.yml --profile loadtest \
+  #     run --rm k6 run /scripts/burst-20k.js
+  k6:
+    image: grafana/k6:latest
+    container_name: coupon-k6
+    profiles: ["loadtest"] # `up` 에 자동 포함 안 됨. 명시적으로 프로필 지정해야 뜸
+    volumes:
+      - ./loadtest:/scripts:ro
+    environment:
+      BASE_URL: "http://coupon-app:8080" # 호스트를 거치지 않고 앱 컨테이너로 직통
+      POLICY_ID: "${POLICY_ID:-}"
+      PEAK: "${PEAK:-20000}"
+      RAMP: "${RAMP:-60s}"
+      HOLD: "${HOLD:-60s}"
+      MODE: "${MODE:-vus}"
+      ARRIVAL_RATE: "${ARRIVAL_RATE:-}"
+      STOCK: "${STOCK:-10000}"
+      K6_DISCARD_RESPONSE_BODIES: "true"
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - coupon-network
+    mem_limit: 6g
