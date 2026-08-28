@@ -93,21 +93,67 @@ public class QueueLimitAdminService {
     }
 
     /**
-     * 대기열 부하 상태에 따라 처리 Limit을 자동 스케일링한다.
+     * 자동 스케일링이 한 틱에 허가할 수 있는 인원의 상한 비율(잔여 재고 대비 %).
+     *
+     * <p><b>왜 필요한가</b>: 입장 허가는 재고를 차감하지 않는다 — 실제 차감은 그 유저가 나중에
+     * {@code /issue}를 호출할 때 일어난다. 그런데 입장 허가받은 유저는 자기 차례가 됐다는 걸
+     * 다음 폴링에서야 알고, {@code QueueService.calculateRetryAfter}의 동적 백오프 때문에 그게
+     * 최대 3초 뒤일 수 있다. 즉 입장 스케줄러는 매 1초 틱마다 <b>아직 반영되지 않은 재고 값</b>을
+     * 보고 판단하게 되며, 최악의 경우 3틱 동안 같은 재고를 근거로 중복 허가한다. 한 틱의 배치가
+     * 잔여 재고에 비해 클수록 이 구간에서 과다 입장이 커지고, 그 초과 인원 사이의 승부는 도착
+     * 순서(seq)가 아니라 {@code /issue} 호출 타이밍이 갈라놓으므로 <b>선착순 순서가 깨진다</b>
+     * (이슈 #8). 실측(2026-08-28, 재고 10,000 / admission-rate 2000 = 재고의 20%)에서 747명
+     * 초과 허가 → FCFS 역전 356쌍이 발생했다.
+     *
+     * <p>5%로 잡은 근거: 같은 실측 시리즈에서 재고의 3~5% 수준(재고 10,000 기준 300~500)은
+     * 역전 0건을 유지했다. 발급 개수·중복 방지 같은 안전 속성은 Lua 원자성이 항상 보장하므로,
+     * 이 값이 지키는 건 순수하게 "선착순 순서"다.
+     */
+    private static final int MAX_ADMISSION_PERCENT_OF_STOCK = 5;
+
+    /**
+     * 대기열 부하 상태에 따라 처리 Limit을 자동 스케일링하되, 잔여 재고 대비 안전 상한을 넘지
+     * 않도록 조인다.
      *
      * <ul>
      *   <li>대기열 인원이 5,000명 이상으로 급증 시: 기본값의 2배(최대 1,000)로 동적 확장</li>
      *   <li>대기열 인원이 10,000명 이상 폭증 시: 기본값의 3배(최대 2,000)로 추가 확장</li>
+     *   <li>단, 위 확장분은 잔여 재고의 {@value #MAX_ADMISSION_PERCENT_OF_STOCK}%를 넘지 못한다</li>
      * </ul>
+     *
+     * <p><b>스케일 기준에 잔여 재고를 넣은 이유</b>: 예전에는 대기열 길이만 봤는데, 정작 이슈 #8의
+     * 위험도를 결정하는 건 "재고 대비 배치 크기"다. 그래서 아무도 설정을 바꾸지 않아도 자동
+     * 스케일링만으로 위험 구간에 진입할 수 있었다 — 기본값 300에서도 대기열 1만 명이면 900(재고
+     * 10,000 기준 9%)이 되고, 운영자가 정책별 Limit을 700 이상으로 올려둔 상태라면 자동으로
+     * 2,000(20%)까지 올라가 실측에서 FCFS 역전을 만든 바로 그 값에 도달한다. 지금까지 사고가 안
+     * 난 건 대기열 동적 캡(재고×1.1)과 우연히 맞물린 결과지, 설계가 보장한 게 아니었다.
+     *
+     * <p>운영자가 명시적으로 설정한 {@code baseLimit} 자체는 이 상한이 깎지 않는다 — 자동
+     * 스케일링(기계가 알아서 올리는 부분)만 조이는 것이 이 가드의 역할이고, baseLimit을 얼마로
+     * 둘지는 여전히 운영자의 판단 영역이기 때문이다(권장: 재고의 3~5%).
+     *
+     * @param queueSize      현재 대기열 인원
+     * @param remainingStock 현재 잔여 재고. 0 이하이거나 알 수 없으면(음수) 스케일링하지 않는다.
      */
-    public int calculateAutoScaledLimit(Long policyId, long queueSize) {
+    public int calculateAutoScaledLimit(Long policyId, long queueSize, long remainingStock) {
         int baseLimit = getEffectiveLimit(policyId);
 
+        int scaledLimit;
         if (queueSize >= 10000) {
-            return Math.min(2000, baseLimit * 3);
+            scaledLimit = Math.min(2000, baseLimit * 3);
         } else if (queueSize >= 5000) {
-            return Math.min(1000, baseLimit * 2);
+            scaledLimit = Math.min(1000, baseLimit * 2);
+        } else {
+            return baseLimit;
         }
-        return baseLimit;
+
+        if (remainingStock <= 0) {
+            // 재고를 모르거나 이미 소진 — 확장할 근거가 없으므로 운영자 설정값 그대로 간다.
+            return baseLimit;
+        }
+
+        int stockSafetyCap = (int) Math.min(
+                Integer.MAX_VALUE, remainingStock * MAX_ADMISSION_PERCENT_OF_STOCK / 100);
+        return Math.max(baseLimit, Math.min(scaledLimit, stockSafetyCap));
     }
 }

@@ -50,24 +50,32 @@ public class QueueAdmissionScheduler {
             Boolean acquired = redisTemplate.opsForValue().setIfAbsent(lockKey, "locked", 1, TimeUnit.SECONDS);
             if (Boolean.TRUE.equals(acquired)) {
                 try {
-                    // 1) 재고 소진(0 이하)된 정책은 Redis 레벨에서 조기 스킵하여 불필요한 연산 방어
+                    // 1) 재고 소진(0 이하)된 정책은 Redis 레벨에서 조기 스킵하여 불필요한 연산 방어.
+                    //    여기서 읽은 잔여 재고는 2)의 자동 스케일링 안전 상한 계산에도 그대로 쓴다
+                    //    (같은 틱에서 두 번 읽으면 서로 다른 시점의 값이 섞일 수 있다).
+                    //    -1 = 재고를 알 수 없음(키 미초기화/파싱 실패) → 스케일링하지 않는다.
+                    long remainingStock = -1L;
                     String stockStr = redisTemplate.opsForValue().get(RedisKeys.couponStock(policyId));
                     if (stockStr != null) {
                         try {
-                            if (Integer.parseInt(stockStr) <= 0) {
+                            remainingStock = Integer.parseInt(stockStr);
+                            if (remainingStock <= 0) {
                                 log.debug("재고 소진 정책 입장 처리 스킵. policyId={}", policyId);
                                 continue;
                             }
                         } catch (NumberFormatException ignored) {
+                            remainingStock = -1L;
                         }
                     }
 
                     // 2) 실시간 동적 Limit + 대기열 부하 기반 자동 스케일링 적용
+                    //    (잔여 재고 대비 안전 상한으로 과다 입장/FCFS 역전 위험을 조인다 — 이슈 #8)
                     String queueKey = RedisKeys.couponQueue(policyId);
                     Long queueSize = redisTemplate.opsForZSet().zCard(queueKey);
                     long currentSize = (queueSize != null) ? queueSize : 0L;
 
-                    int effectiveLimit = queueLimitAdminService.calculateAutoScaledLimit(policyId, currentSize);
+                    int effectiveLimit =
+                            queueLimitAdminService.calculateAutoScaledLimit(policyId, currentSize, remainingStock);
                     queueAdmissionService.admitUsers(policyId, effectiveLimit);
                 } catch (Exception e) {
                     log.error("대기열 입장 스케줄러 실행 중 오류 발생. policyId={}", policyId, e);
