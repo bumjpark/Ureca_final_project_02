@@ -60,6 +60,7 @@ public class QueueService {
     private final CouponPolicyCacheService couponPolicyCacheService;
     private final QueueRateLimiter queueRateLimiter;
     private final KafkaCouponEventProducer kafkaCouponEventProducer;
+    private final QueueJoinLogWriter queueJoinLogWriter;
     private final StringRedisTemplate redisTemplate;
     private final RedisScript<List<Long>> joinQueueScript;
     private final RedisScript<List<String>> getQueueStatusScript;
@@ -131,7 +132,8 @@ public class QueueService {
             response = QueueJoinResponse.waiting(rank, estimatedWait);
         }
 
-        // 5. 선착순 감사(Audit) 및 영속성을 위한 Kafka 대기열 진입 이벤트 발행 (비동기 비차단)
+        // 5. 선착순 감사(Audit)를 위한 Kafka 대기열 진입 이벤트 발행 (비동기 비차단)
+        LocalDateTime joinedAt = LocalDateTime.now();
         try {
             kafkaCouponEventProducer.publishQueueJoinEvent(
                     new com.ureca.myureca.dto.event.QueueJoinEvent(
@@ -140,12 +142,16 @@ public class QueueService {
                             response.status(),
                             response.rank(),
                             seq,
-                            LocalDateTime.now()
+                            joinedAt
                     )
             );
         } catch (Exception e) {
             log.warn("대기열 진입 Kafka 이벤트 발행 예외 (비차단). policyId={}, userId={}", policyId, userId, e);
         }
+
+        // 6. 이슈 #12: FCFS 검증 근거 데이터(queue_join_log) 비동기 적재. Lua가 이미 확정한
+        // seq(ZRANK 아님, 절대 순번)를 그대로 넘긴다 — join 응답 스레드는 막지 않는다.
+        queueJoinLogWriter.recordAsync(policyId, userId, response.status(), seq, joinedAt);
 
         return response;
     }
