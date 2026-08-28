@@ -13,6 +13,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.SequenceGenerator;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDateTime;
@@ -49,7 +50,9 @@ import org.hibernate.annotations.UpdateTimestamp;
 public class CouponHistory {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    // CouponIssue와 동일한 이유(IDENTITY의 강제 즉시 flush 회피)로 SEQUENCE 전환. V7 마이그레이션 참고.
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "coupon_history_seq")
+    @SequenceGenerator(name = "coupon_history_seq", sequenceName = "coupon_history_seq", allocationSize = 50)
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)

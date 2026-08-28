@@ -4,10 +4,14 @@ spring:
 
   # ---------- MySQL ----------
   datasource:
-    url: jdbc:mysql://${DB_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:coupon_db}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+    url: jdbc:mysql://${DB_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:coupon_db}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul&characterEncoding=UTF-8&rewriteBatchedStatements=true
     username: ${MYSQL_USER:coupon_user}
     password: ${MYSQL_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      # 기본값(10)은 Kafka Consumer concurrency(3) + HTTP 요청 처리가 동시에 커넥션을
+      # 다투기엔 빠듯하다. 정합성과는 무관한 순수 리소스 여유분 확장.
+      maximum-pool-size: ${DB_HIKARI_MAX_POOL_SIZE:20}
 
   jpa:
     hibernate:
@@ -16,6 +20,17 @@ spring:
     properties:
       hibernate:
         format_sql: true
+        # SEQUENCE 전환(V7)과 짝을 맞춘 JDBC batch insert 설정.
+        # IDENTITY였을 때는 매 save()마다 즉시 flush가 강제돼 이 설정이 무의미했지만,
+        # SEQUENCE는 ID를 미리 캐싱해 쓰므로 flush를 트랜잭션 커밋 시점까지 미룰 수 있어
+        # 여러 INSERT를 한 번의 JDBC batch로 묶어 보낼 수 있다.
+        # coupon.kafka.consumer.chunk-size(기본 100)와 값을 맞췄다 — flush 시점에 대기 중인
+        # 엔티티 수 자체가 chunk-size로 결정되므로, batch_size를 그보다 크게 잡아도 의미가
+        # 없고 작으면(예: 50) 한 청크가 여러 번의 JDBC round-trip으로 쪼개져 나간다.
+        jdbc:
+          batch_size: 100
+        order_inserts: true
+        order_updates: true
     open-in-view: false
 
   # ---------- Redis ----------
@@ -55,17 +70,6 @@ spring:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
 
-  # ---------- JPA Batch Insert (참고) ----------
-  # CouponIssue, CouponHistory가 IDENTITY 전략을 사용 중이라 JDBC batch insert가 무력화됨.
-  # 성능 개선 시 SEQUENCE 전략 전환 + 아래 설정 활성화 권장.
-  # jpa:
-  #   properties:
-  #     hibernate:
-  #       jdbc:
-  #         batch_size: 30
-  #       order_inserts: true
-  #       order_updates: true
-
 server:
   port: ${SERVER_PORT:8080}
   tomcat:
@@ -92,6 +96,9 @@ coupon:
     consumer:
       group-id: ${COUPON_KAFKA_CONSUMER_GROUP_ID:coupon-issue-consumer-group}
       concurrency: ${COUPON_KAFKA_CONSUMER_CONCURRENCY:3}
+      # 배치(poll 결과)를 이 크기로 잘라 트랜잭션 단위로 묶는다. 너무 크면 poison-pill(청크 내
+      # 하나 실패 시 청크 전체 롤백) 영향 범위가 커지고, 너무 작으면 커밋 절감 효과가 준다.
+      chunk-size: ${COUPON_KAFKA_CONSUMER_CHUNK_SIZE:100}
 
   # ---------- Redis 재구성(UBM-33) 운영 자동화 ----------
   redis-recovery:

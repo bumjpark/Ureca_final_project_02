@@ -1,8 +1,10 @@
 package com.ureca.myureca.repository;
 
 import com.ureca.myureca.domain.coupon.CouponHistory;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -21,6 +23,14 @@ public interface CouponHistoryRepository extends JpaRepository<CouponHistory, Lo
      * (receiptId → request_id 컬럼 매핑)
      */
     boolean existsByRequestId(String requestId);
+
+    /**
+     * 청크 단위 처리(CouponIssuedEventProcessor.processChunk)용 배치 인박스 체크.
+     * 이벤트 하나마다 SELECT 한 번씩(existsByRequestId) 하는 대신, 청크 전체의 requestId를
+     * 한 번의 IN 조회로 확인해 이미 처리된 것만 걸러낸다.
+     */
+    @Query("select h.requestId from CouponHistory h where h.requestId in :requestIds")
+    Set<String> findExistingRequestIds(@Param("requestIds") Collection<String> requestIds);
 
     @Query("select new com.ureca.myureca.repository.CouponHistoryStatusSnapshot(h.couponIssue.id, h.newStatus) "
             + "from CouponHistory h where h.couponIssue.couponPolicy.id = :policyId "
