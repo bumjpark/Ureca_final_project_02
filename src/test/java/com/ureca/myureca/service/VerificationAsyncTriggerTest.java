@@ -3,6 +3,7 @@ package com.ureca.myureca.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -30,6 +31,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
@@ -87,10 +89,17 @@ class VerificationAsyncTriggerTest {
                 .when(queueJoinLogRepository.countByCouponPolicyIdAndQueueRankLessThanEqual(any(), any()))
                 .thenReturn(0L);
 
+        // execute()가 트랜잭션 프록시를 얻어오는 자기 참조. 유닛 테스트에는 프록시가 없으므로
+        // 자기 자신을 그대로 돌려준다(이 테스트들은 performVerification을 직접 호출하지만,
+        // execute() 경로를 검증하는 테스트를 위해 함께 배선해 둔다).
+        @SuppressWarnings("unchecked")
+        ObjectProvider<VerificationAsyncTrigger> selfProvider = mock(ObjectProvider.class);
+
         asyncTrigger = new VerificationAsyncTrigger(
                 couponIssueRepository, verificationReportRepository, redisTemplate, mismatchReportWriter,
-                couponHistoryRepository, queueJoinLogRepository
+                couponHistoryRepository, queueJoinLogRepository, selfProvider
         );
+        org.mockito.Mockito.lenient().when(selfProvider.getObject()).thenReturn(asyncTrigger);
     }
 
     private CouponPolicy policy(long id, int totalQuantity) {
@@ -106,6 +115,24 @@ class VerificationAsyncTriggerTest {
         VerificationReport report = VerificationReport.pending(policy, LocalDateTime.now());
         ReflectionTestUtils.setField(report, "id", 1L);
         return report;
+    }
+
+    /**
+     * 대사 작업이 실패하면 리포트가 반드시 FAILED로 확정돼야 한다. PENDING으로 남으면
+     * {@code VerificationService.dispatch()}가 그 정책의 재검증을 영구히 봉쇄한다.
+     */
+    @Test
+    void 대사_작업이_실패하면_리포트를_FAILED로_확정한다() {
+        CouponPolicy policy = policy(1L, 10000);
+        VerificationReport report = pendingReport(policy);
+        when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
+        when(couponIssueRepository.findUserIdsByCouponPolicyId(1L))
+                .thenThrow(new RuntimeException("DB 커넥션 끊김"));
+
+        asyncTrigger.execute(1L);
+
+        assertThat(report.getStatus()).isEqualTo(VerificationStatus.FAILED);
+        assertThat(report.getFailureReason()).contains("DB 커넥션 끊김");
     }
 
     @Test

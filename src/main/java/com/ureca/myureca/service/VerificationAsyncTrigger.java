@@ -13,11 +13,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.ureca.myureca.domain.coupon.CouponPolicy;
@@ -50,22 +52,52 @@ public class VerificationAsyncTrigger {
     private final CouponHistoryRepository couponHistoryRepository;
     private final QueueJoinLogRepository queueJoinLogRepository;
 
+    /**
+     * 자기 자신의 Spring 프록시. {@link #execute}는 트랜잭션 <b>밖</b>에 있어야 하고
+     * ({@link #execute} 주석 참고) {@link #performVerification}·{@link #markFailed}는 각각 별개
+     * 트랜잭션이어야 하는데, 같은 클래스 안에서 그냥 호출하면 self-invoke라 AOP 프록시를 안 거쳐
+     * {@code @Transactional}이 통째로 무시된다. {@code ObjectProvider}로 지연 조회하면 자기 참조
+     * 순환 의존성 없이 프록시를 얻을 수 있다.
+     */
+    private final ObjectProvider<VerificationAsyncTrigger> selfProvider;
+
+    /**
+     * 검증 실행 오케스트레이션 전담. <b>이 메서드에는 {@code @Transactional}을 붙이면 안 된다.</b>
+     *
+     * <p>예전에는 여기에 {@code @Transactional}이 붙어 있고 {@code catch} 안에서 리포트를 FAILED로
+     * 바꿨는데, 실패 원인이 DB 예외인 경우 Hibernate가 이미 그 트랜잭션을 rollback-only로 마킹한
+     * 뒤라 {@code report.fail()}의 더티체킹이 절대 커밋되지 않았다(이슈 #11/#17에서 Kafka 컨슈머에
+     * 대해 잡았던 것과 정확히 같은 패턴). 그 결과가 단순 로그 누락이 아니라는 게 문제였다 —
+     * {@code VerificationService.dispatch()}는 PENDING 리포트가 있으면 새 검증을 접수하지 않으므로,
+     * 한 번 PENDING에 갇히면 <b>그 정책은 다시는 검증을 돌릴 수 없었다.</b> 게다가 이 메서드는
+     * {@code @Async}라 예외가 아무 데도 안 올라가서 조용히 그렇게 됐다.
+     *
+     * <p>그래서 트랜잭션 경계를 둘로 쪼갰다: 실제 대사 작업({@link #performVerification})이 자기
+     * 트랜잭션에서 롤백되더라도, 실패 기록({@link #markFailed})은 그와 무관한 새 트랜잭션에서
+     * 독립적으로 커밋된다.
+     */
     @Async("verificationTaskExecutor")
-    @Transactional
     public void execute(Long reportId) {
+        VerificationAsyncTrigger self = selfProvider.getObject();
         try {
-            performVerification(reportId);
+            self.performVerification(reportId);
         } catch (Exception e) {
             // 백그라운드 스레드라 예외를 던져봐야 받아줄 호출자가 없다 — 여기서 잡아 로그로 남긴다.
             log.error("검증 배치 비동기 실행 실패. reportId={}", reportId, e);
-            markFailed(reportId, e);
+            self.markFailed(reportId, e);
         }
     }
 
     /**
-     * 실패한 리포트를 FAILED로 확정
+     * 실패한 리포트를 FAILED로 확정한다.
+     *
+     * <p>{@code REQUIRES_NEW}인 이유: 호출 시점에 이미 {@link #performVerification}의 트랜잭션이
+     * 롤백된 뒤이고, 혹시라도 바깥에 rollback-only로 마킹된 트랜잭션이 살아있다면 그 안에서
+     * 쓰기를 시도해봐야 커밋되지 않는다. 실패 기록은 검증 작업의 성패와 완전히 독립적으로
+     * 남아야 하므로 항상 새 트랜잭션에서 수행한다.
      */
-    private void markFailed(Long reportId, Exception cause) {
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void markFailed(Long reportId, Exception cause) {
         try {
             verificationReportRepository.findById(reportId).ifPresent(report -> {
                 if (report.getStatus() == VerificationStatus.PENDING) {
@@ -82,7 +114,14 @@ public class VerificationAsyncTrigger {
         return message.length() > 500 ? message.substring(0, 500) : message;
     }
 
-    void performVerification(Long reportId) {
+    /**
+     * 실제 대사(비교) 작업. {@code public}인 이유는 가시성이 필요해서가 아니라, Spring의
+     * {@code AnnotationTransactionAttributeSource}가 <b>public 메서드에만</b>
+     * {@code @Transactional}을 적용하기 때문이다 — package-private으로 두면 프록시를 거쳐도
+     * 트랜잭션이 조용히 무시되고, 이 메서드가 의존하는 지연 로딩·더티체킹이 전부 깨진다.
+     */
+    @Transactional
+    public void performVerification(Long reportId) {
         VerificationReport report = verificationReportRepository.findById(reportId)
                 .orElseThrow(() -> new IllegalStateException("검증 리포트를 찾을 수 없습니다. id=" + reportId));
 
