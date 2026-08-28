@@ -49,33 +49,34 @@ public class KafkaConsumerLagChecker {
                     .partitionsToOffsetAndMetadata()
                     .get(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
 
-            Map<String, Object> config = new HashMap<>();
-            config.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-            config.put(ConsumerConfig.GROUP_ID_CONFIG, "lag-check-" + UUID.randomUUID());
-            config.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
-            config.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
-            config.put(ConsumerConfig.REQUEST_TIMEOUT_MS_CONFIG, 5000);
-            config.put(ConsumerConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, 5000);
+            org.apache.kafka.clients.admin.TopicDescription description = adminClient
+                    .describeTopics(List.of(topic))
+                    .topicNameValues()
+                    .get(topic)
+                    .get(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
 
-            try (KafkaConsumer<String, String> consumer = new KafkaConsumer<>(config)) {
-                List<PartitionInfo> partitionInfos = consumer.partitionsFor(topic, TIMEOUT);
-                if (partitionInfos == null || partitionInfos.isEmpty()) {
-                    return 0;
-                }
-                List<TopicPartition> partitions = partitionInfos.stream()
-                        .map(p -> new TopicPartition(topic, p.partition()))
-                        .toList();
-                Map<TopicPartition, Long> endOffsets = consumer.endOffsets(partitions, TIMEOUT);
+            List<TopicPartition> partitions = description.partitions().stream()
+                    .map(p -> new TopicPartition(topic, p.partition()))
+                    .toList();
 
-                long lag = 0;
-                for (TopicPartition tp : partitions) {
-                    long end = endOffsets.getOrDefault(tp, 0L);
-                    OffsetAndMetadata committedOffset = committed.get(tp);
-                    long consumedOffset = committedOffset != null ? committedOffset.offset() : 0L;
-                    lag += Math.max(0, end - consumedOffset);
-                }
-                return lag;
+            Map<TopicPartition, org.apache.kafka.clients.admin.OffsetSpec> offsetSpecs = new HashMap<>();
+            for (TopicPartition tp : partitions) {
+                offsetSpecs.put(tp, org.apache.kafka.clients.admin.OffsetSpec.latest());
             }
+
+            Map<TopicPartition, org.apache.kafka.clients.admin.ListOffsetsResult.ListOffsetsResultInfo> endOffsets = adminClient
+                    .listOffsets(offsetSpecs)
+                    .all()
+                    .get(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+
+            long lag = 0;
+            for (TopicPartition tp : partitions) {
+                long end = endOffsets.containsKey(tp) ? endOffsets.get(tp).offset() : 0L;
+                OffsetAndMetadata committedOffset = committed.get(tp);
+                long consumedOffset = committedOffset != null ? committedOffset.offset() : 0L;
+                lag += Math.max(0, end - consumedOffset);
+            }
+            return lag;
         } catch (Exception e) {
             log.warn("[KafkaConsumerLagChecker] topic='{}' group='{}' lag 조회 실패", topic, consumerGroupId, e);
             return -1;

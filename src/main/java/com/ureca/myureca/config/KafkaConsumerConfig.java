@@ -67,13 +67,10 @@ public class KafkaConsumerConfig {
         config.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         config.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
 
-        // 정합성 우선: 배치를 20건으로 제한.
-        // 재시도 포함 최악 처리 시간 = 20건 × (처리시간 + 1초×2 재시도) ≈ 40~60초
-        // → max.poll.interval.ms(120초)보다 충분히 작음
-        config.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 20);
+        // 정합성 및 고성능 배치: 배치를 50건으로 설정하여 처리량 극대화
+        config.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 50);
 
-        // max.poll.interval.ms: 2분 (20건 × 최악 재시도 3초 × 여유 2배)
-        // 이 값을 초과하면 리밸런싱이 발생하여 동일 메시지 중복 처리 위험 증가
+        // max.poll.interval.ms: 2분
         config.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 120_000);
 
         // ErrorHandlingDeserializer로 역직렬화 오류를 Consumer 레벨에서 처리

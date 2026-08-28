@@ -51,9 +51,6 @@ public class KafkaCouponEventConsumer {
             containerFactory = "couponIssuedEventListenerContainerFactory"
     )
     public void consume(List<CouponIssuedEvent> events) {
-        log.debug("[KafkaConsumer] 배치 수신 — topic={}, size={}", TOPIC, events.size());
-        for (CouponIssuedEvent event : events) {
-            processor.processSingle(event);
-        }
+        processor.processBatch(events);
     }
 }

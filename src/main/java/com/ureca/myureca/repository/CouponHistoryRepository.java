@@ -22,6 +22,9 @@ public interface CouponHistoryRepository extends JpaRepository<CouponHistory, Lo
      */
     boolean existsByRequestId(String requestId);
 
+    @Query("SELECT ch.requestId FROM CouponHistory ch WHERE ch.requestId IN :requestIds")
+    java.util.Set<String> findExistingRequestIds(@Param("requestIds") java.util.Collection<String> requestIds);
+
     @Query("select new com.ureca.myureca.repository.CouponHistoryStatusSnapshot(h.couponIssue.id, h.newStatus) "
             + "from CouponHistory h where h.couponIssue.couponPolicy.id = :policyId "
             + "order by h.couponIssue.id asc, h.id asc")

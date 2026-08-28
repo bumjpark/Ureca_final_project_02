@@ -4,7 +4,7 @@ spring:
 
   # ---------- MySQL ----------
   datasource:
-    url: jdbc:mysql://${DB_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:coupon_db}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+    url: jdbc:mysql://${DB_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:coupon_db}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul&characterEncoding=UTF-8&rewriteBatchedStatements=true
     username: ${MYSQL_USER:coupon_user}
     password: ${MYSQL_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -30,9 +30,9 @@ spring:
       timeout: 1000ms
       lettuce:
         pool:
-          max-active: 200
-          max-idle: 100
-          min-idle: 20
+          max-active: 500
+          max-idle: 250
+          min-idle: 50
 
   # ---------- @Scheduled 배치 스레드풀 ----------
   # 값을 명시하지 않으면 스케줄러 스레드가 1개라 모든 @Scheduled 배치가 직렬로 실행된다.
@@ -81,7 +81,7 @@ coupon:
   queue:
     max-size: ${COUPON_QUEUE_MAX_SIZE:30000}
     token-ttl-seconds: ${COUPON_QUEUE_TOKEN_TTL:60}
-    admission-rate: ${COUPON_QUEUE_ADMISSION_RATE:300}
+    admission-rate: ${COUPON_QUEUE_ADMISSION_RATE:500}
     admission-interval-ms: ${COUPON_QUEUE_ADMISSION_INTERVAL_MS:1000}
 
 # ---------- Coupon Kafka Consumer Settings ----------
