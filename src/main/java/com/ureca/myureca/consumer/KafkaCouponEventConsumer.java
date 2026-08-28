@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.listener.BatchListenerFailedException;
 import org.springframework.stereotype.Component;
 
 /**
@@ -50,8 +51,17 @@ public class KafkaCouponEventConsumer {
      * <p>{@link CouponIssuedEventProcessor#processChunk}가 예외를 던지면(청크 안에 문제
      * 있는 이벤트가 있어 트랜잭션 전체가 롤백된 경우) 그 청크에 한해
      * {@link CouponIssuedEventProcessor#processSingle}로 건별 재처리한다 — 청크 안의
-     * 정상 이벤트를 구제하기 위함이다. 그마저도 실패하면(DB 커넥션 오류 등) 예외가
-     * 그대로 전파되어 DefaultErrorHandler가 FixedBackOff로 재시도한다.
+     * 정상 이벤트를 구제하기 위함이다.
+     *
+     * <p><b>건별 폴백 중 하나가 또 실패하면(DB 커넥션 오류 등 진짜 일시 장애)</b> 그 예외를
+     * 그대로 밖으로 던지지 않는다. 배치 리스너에서 일반 예외를 던지면 Spring Kafka는 "이 poll
+     * 배치 전체가 실패했다"고 간주해, 재시도가 모두 소진된 뒤 recoverer를 poll 배치에 담긴
+     * 레코드 전부(이미 커밋된 앞쪽 레코드까지 포함)에 대해 호출한다 — 배치 크기가 클수록
+     * (예: max.poll.records=5000) 애먼 레코드까지 무더기로 DLT에 실리는 사고로 번진다
+     * (실측: 896건이 한 번에 DLT로 넘어간 사례 확인, issue #15).
+     * 대신 {@link BatchListenerFailedException}에 실패한 레코드의 poll 배치 내 절대 인덱스를
+     * 실어 던진다 — Spring Kafka가 정확히 그 레코드의 오프셋으로만 seek-back하므로, 재시도/DLT
+     * 범위가 실제로 실패한 레코드(및 그 뒤로 아직 처리 안 된 레코드)로만 좁혀진다.
      *
      * @param events Kafka로 수신한 CouponIssuedEvent 배치 (max.poll.records 크기)
      */
@@ -70,8 +80,18 @@ public class KafkaCouponEventConsumer {
                 processor.processChunk(chunk);
             } catch (Exception e) {
                 log.warn("[KafkaConsumer] 청크 처리 실패 — 건별 재처리로 폴백. size={}", chunk.size(), e);
-                for (CouponIssuedEvent event : chunk) {
-                    processor.processSingle(event);
+                for (int i = 0; i < chunk.size(); i++) {
+                    CouponIssuedEvent event = chunk.get(i);
+                    try {
+                        processor.processSingle(event);
+                    } catch (Exception singleEx) {
+                        int absoluteIndex = start + i;
+                        log.warn("[KafkaConsumer] 건별 재처리도 실패 — 이 레코드(index={})만 격리해 재시도/DLT 대상으로 넘김. "
+                                        + "receiptId={}, policyId={}, userId={}",
+                                absoluteIndex, event.receiptId(), event.policyId(), event.userId(), singleEx);
+                        throw new BatchListenerFailedException(
+                                "이벤트 단건 처리 실패 — receiptId=" + event.receiptId(), singleEx, absoluteIndex);
+                    }
                 }
             }
         }
