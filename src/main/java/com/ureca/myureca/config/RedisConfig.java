@@ -1,5 +1,6 @@
 package com.ureca.myureca.config;
 
+import com.ureca.myureca.service.QueueSseService;
 import io.lettuce.core.ClientOptions;
 import io.lettuce.core.SocketOptions;
 import io.lettuce.core.TimeoutOptions;
@@ -9,11 +10,28 @@ import org.springframework.boot.data.redis.autoconfigure.LettuceClientConfigurat
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
+import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 
 @Configuration
 public class RedisConfig {
+
+    /**
+     * SSE ADMITTED 푸시(이슈 #23)를 위한 Pub/Sub 리스너 컨테이너. {@link QueueSseService}를
+     * {@code sse:admitted} 채널의 구독자로 등록해, 어느 인스턴스가 발행하든 전체 인스턴스가
+     * 메시지를 받아 각자 로컬 SSE emitter에 유저가 있으면 push하게 한다.
+     */
+    @Bean
+    public RedisMessageListenerContainer redisMessageListenerContainer(
+            RedisConnectionFactory connectionFactory, QueueSseService queueSseService) {
+        RedisMessageListenerContainer container = new RedisMessageListenerContainer();
+        container.setConnectionFactory(connectionFactory);
+        container.addMessageListener(
+                queueSseService, new org.springframework.data.redis.listener.ChannelTopic(QueueSseService.ADMITTED_CHANNEL));
+        return container;
+    }
 
     @Bean
     public LettuceClientConfigurationBuilderCustomizer lettuceClientConfigurationBuilderCustomizer() {
