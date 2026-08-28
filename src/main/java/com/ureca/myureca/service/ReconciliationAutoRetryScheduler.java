@@ -4,9 +4,13 @@ import com.ureca.myureca.domain.reconciliation.ReconciliationLog;
 import com.ureca.myureca.domain.reconciliation.ReconciliationStatus;
 import com.ureca.myureca.domain.reconciliation.ReconciliationType;
 import com.ureca.myureca.repository.ReconciliationLogRepository;
+import com.ureca.myureca.support.RedisKeys;
+import java.time.Duration;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -34,6 +38,15 @@ public class ReconciliationAutoRetryScheduler {
      *  실패) 무한 재시도로 로그만 채우는 것을 방지. 수동 재처리는 이 한도와 무관하게 항상 가능하다. */
     private static final int MAX_AUTO_RETRY_COUNT = 5;
 
+    /** 한 틱(instance)당 최대 처리 건수(이슈 #21) — 장애가 길어져 PENDING이 많이 쌓여도, 막
+     *  복구된 브로커/컨슈머를 한 번에 밀어버리지 않도록 상한을 둔다. 남은 건 다음 틱에 이어서 처리. */
+    private static final int MAX_BATCH_SIZE_PER_TICK = 500;
+
+    /** 분산 락 TTL. 스케줄 주기(기본 60초)보다 충분히 짧게 둬서, 한 틱 처리가 늦어져도 락이
+     *  자연히 풀려 다음 인스턴스가 잡을 수 있게 한다(QueueAdmissionScheduler의 1초 TTL과 같은 원칙,
+     *  다만 이쪽은 배치 처리라 여유를 더 둠). */
+    private static final Duration LOCK_TTL = Duration.ofSeconds(30);
+
     private static final List<ReconciliationStatus> RETRYABLE_STATUSES =
             List.of(ReconciliationStatus.PENDING, ReconciliationStatus.FAILED);
 
@@ -45,17 +58,29 @@ public class ReconciliationAutoRetryScheduler {
 
     private final ReconciliationLogRepository reconciliationLogRepository;
     private final ReconciliationRetryTrigger reconciliationRetryTrigger;
+    private final StringRedisTemplate redisTemplate;
 
     @Scheduled(fixedDelayString = "${coupon.reconciliation.auto-retry-interval-ms:60000}")
     public void retryPendingAndFailed() {
         for (ReconciliationType type : AUTO_RETRY_TYPES) {
-            retryType(type);
+            // type별로 분산 락을 따로 걸어 EVENT_REPUBLISH/DLT_REPROCESS가 서로 다른 인스턴스에서
+            // 동시에 처리될 수 있게 한다 — 이슈 #21: 락이 없으면 N개 인스턴스가 매 틱마다 같은
+            // 행을 동시에 재발행해 retryCount가 틱당 N배로 소진되고 MAX_AUTO_RETRY_COUNT를
+            // 1라운드 만에 다 써버린다.
+            String lockKey = RedisKeys.lockReconciliationRetry(type.name());
+            Boolean acquired = redisTemplate.opsForValue().setIfAbsent(lockKey, "locked", LOCK_TTL);
+            if (Boolean.TRUE.equals(acquired)) {
+                retryType(type);
+            } else {
+                log.debug("[ReconciliationAutoRetry] 다른 인스턴스가 이미 처리 중입니다. type={}", type);
+            }
         }
     }
 
     private void retryType(ReconciliationType type) {
         List<ReconciliationLog> targets = reconciliationLogRepository
-                .findByTypeAndStatusIn(type, RETRYABLE_STATUSES)
+                .findByTypeAndStatusInOrderByCreatedAtAsc(
+                        type, RETRYABLE_STATUSES, PageRequest.of(0, MAX_BATCH_SIZE_PER_TICK))
                 .stream()
                 .filter(log -> log.getRetryCount() < MAX_AUTO_RETRY_COUNT)
                 .toList();
