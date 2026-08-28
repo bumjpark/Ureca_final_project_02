@@ -91,6 +91,27 @@ class KafkaCouponEventProducerTest {
     }
 
     @Test
+    void MAX_BLOCK_MS_타임아웃_등으로_send_호출_자체가_동기적으로_예외를_던져도_EVENT_REPUBLISH로_적재된다() {
+        // 실사고 확인(2026-08-28): KafkaTemplate.doSend()는 producer.send() 자체가 던지는 예외를
+        // 감싸지 않고 동기적으로 그대로 재던진다 — whenComplete가 등록되기도 전에 예외가 나서,
+        // 이 방어가 없으면 recordPublishFailure가 아예 호출되지 않고 이벤트가 흔적 없이 증발한다
+        // (부하테스트 중 Kafka 강제 종료로 라이브 재현: reconciliation_log 없이 459건 영구 유실).
+        when(kafkaTemplate.send("coupon-issued-events", "1_100", event))
+                .thenThrow(new org.springframework.kafka.KafkaException("Send failed",
+                        new org.apache.kafka.common.errors.TimeoutException(
+                                "Topic coupon-issued-events not present in metadata after 3000 ms.")));
+        when(reconciliationLogRepository.existsByEventKey("rcpt_1")).thenReturn(false);
+
+        producer.publishCouponIssuedEvent(event);
+
+        ArgumentCaptor<ReconciliationLog> captor = ArgumentCaptor.forClass(ReconciliationLog.class);
+        verify(reconciliationLogRepository, times(1)).save(captor.capture());
+        ReconciliationLog saved = captor.getValue();
+        assertThat(saved.getType()).isEqualTo(ReconciliationType.EVENT_REPUBLISH);
+        assertThat(saved.getEventKey()).isEqualTo("rcpt_1");
+    }
+
+    @Test
     void reconciliation_log_저장_자체가_실패해도_예외가_밖으로_전파되지_않는다() {
         CompletableFuture<SendResult<String, Object>> future = new CompletableFuture<>();
         when(kafkaTemplate.send("coupon-issued-events", "1_100", event)).thenReturn(future);
@@ -102,5 +123,18 @@ class KafkaCouponEventProducerTest {
         // whenComplete 콜백 안에서 예외가 나도 completeExceptionally 자체는 정상적으로 끝나야 한다
         // (콜백에서 던진 예외가 future 체인을 타고 다시 튀어나오지 않아야 함).
         future.completeExceptionally(new RuntimeException("브로커 연결 실패"));
+    }
+
+    @Test
+    void 대기열_진입_이벤트도_send_호출_자체가_동기적으로_실패해도_예외가_밖으로_전파되지_않는다() {
+        com.ureca.myureca.dto.event.QueueJoinEvent joinEvent = new com.ureca.myureca.dto.event.QueueJoinEvent(
+                1L, 100L, com.ureca.myureca.domain.queue.QueueStatus.WAITING, 5L, 5L,
+                LocalDateTime.parse("2026-08-24T00:00:00"));
+        when(kafkaTemplate.send("queue-join-events", "1", joinEvent))
+                .thenThrow(new org.springframework.kafka.KafkaException("Send failed",
+                        new org.apache.kafka.common.errors.TimeoutException("메타데이터 조회 타임아웃")));
+
+        org.assertj.core.api.Assertions.assertThatCode(() -> producer.publishQueueJoinEvent(joinEvent))
+                .doesNotThrowAnyException();
     }
 }
