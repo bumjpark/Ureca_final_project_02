@@ -26,7 +26,7 @@ import tools.jackson.databind.ObjectMapper;
  *
  * <p>설계 원칙:
  * <ul>
- *   <li>정합성 우선: max.poll.records=20으로 배치를 작게 유지, 실패 시 재처리 범위 최소화</li>
+ *   <li>배치 크기: max.poll.records=5000 (처리량 검증용 실험치, max.poll.interval.ms도 비례 확대해 안전마진 유지)</li>
  *   <li>순서 보장: concurrency ≤ 파티션 수 (초과 시 일부 스레드 유휴 + 순서 보장 깨짐)</li>
  *   <li>멱등성: batch listener OFF, 이벤트 단위 트랜잭션 ({@link com.ureca.myureca.consumer.CouponIssuedEventProcessor})</li>
  *   <li>DLT 확장: recoverer를 {@link ConsumerFailureRecoverer} 인터페이스로 주입 — 다음 이슈에서 교체 시 이 Config만 수정</li>
@@ -67,14 +67,17 @@ public class KafkaConsumerConfig {
         config.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         config.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
 
-        // 정합성 우선: 배치를 20건으로 제한.
-        // 재시도 포함 최악 처리 시간 = 20건 × (처리시간 + 1초×2 재시도) ≈ 40~60초
-        // → max.poll.interval.ms(120초)보다 충분히 작음
-        config.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 20);
+        // 처리량 검증용 실험치: 배치를 5000건까지 확대.
+        // max.partition.fetch.bytes(기본 1MB)를 안 건드린 상태라, CouponIssuedEvent JSON
+        // 1건이 레코드 오버헤드 포함 약 200바이트인 걸 감안하면 1MB / 200B ≈ 5000건이
+        // 파티션 하나당 한 번의 poll()에서 실제로 가져올 수 있는 물리적 상한이다.
+        // 이보다 더 키우려면 max.partition.fetch.bytes/fetch.max.bytes도 같이 올려야 의미가 있다.
+        config.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 5000);
 
-        // max.poll.interval.ms: 2분 (20건 × 최악 재시도 3초 × 여유 2배)
-        // 이 값을 초과하면 리밸런싱이 발생하여 동일 메시지 중복 처리 위험 증가
-        config.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 120_000);
+        // 배치가 20 → 5000건(250배)으로 커진 만큼, 재시도(최악 4회 반복) 포함 최악 처리 시간도
+        // 비례해서 커지므로 max.poll.interval.ms도 같이 늘려 안전마진을 유지한다.
+        // (이 값을 초과하면 리밸런싱이 발생하여 동일 메시지 중복 처리 위험 증가)
+        config.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 600_000);
 
         // ErrorHandlingDeserializer로 역직렬화 오류를 Consumer 레벨에서 처리
         // 역직렬화 실패 시 원본 예외를 DeserializationException으로 래핑하여

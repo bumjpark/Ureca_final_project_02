@@ -21,6 +21,8 @@ import com.ureca.myureca.repository.CouponIssueRepository;
 import com.ureca.myureca.repository.CouponPolicyRepository;
 import com.ureca.myureca.repository.UserRepository;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -28,6 +30,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
@@ -156,6 +159,84 @@ class CouponIssuedEventProcessorTest {
         // DataIntegrityViolationException은 catch되어 밖으로 전파되지 않아야 한다
         assertThatCode(() -> processor.processSingle(sampleEvent()))
                 .doesNotThrowAnyException();
+    }
+
+    // ─────────────────────────────────────────────────
+    // processChunk — 청크 처리(정상 경로)
+    // ─────────────────────────────────────────────────
+
+    @Test
+    void 청크_정상_처리시_배치_SELECT로_중복없음_확인하고_전부_저장한다() {
+        CouponIssuedEvent event1 = new CouponIssuedEvent(POLICY_ID, 1L, "rcpt_1", LocalDateTime.now());
+        CouponIssuedEvent event2 = new CouponIssuedEvent(POLICY_ID, 2L, "rcpt_2", LocalDateTime.now());
+        CouponPolicy policy = new CouponPolicy("테스트 정책", CouponType.FIXED, 1000, 100,
+                LocalDateTime.now().minusDays(1), null);
+        User user = new User("test@test.com", "테스트유저");
+
+        when(couponHistoryRepository.findExistingRequestIds(List.of("rcpt_1", "rcpt_2")))
+                .thenReturn(Set.of());
+        when(couponPolicyRepository.getReferenceById(POLICY_ID)).thenReturn(policy);
+        when(userRepository.getReferenceById(1L)).thenReturn(user);
+        when(userRepository.getReferenceById(2L)).thenReturn(user);
+        when(couponIssueRepository.save(any(CouponIssue.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(redisTemplate.executePipelined(org.mockito.ArgumentMatchers.<RedisCallback<Object>>any()))
+                .thenReturn(List.of());
+
+        processor.processChunk(List.of(event1, event2));
+
+        verify(couponIssueRepository, org.mockito.Mockito.times(2)).save(any(CouponIssue.class));
+        verify(couponHistoryRepository, org.mockito.Mockito.times(2)).save(any(CouponHistory.class));
+        // 건별(processSingle)과 달리 Redis는 파이프라인 1번으로 묶인다
+        verify(redisTemplate).executePipelined(org.mockito.ArgumentMatchers.<RedisCallback<Object>>any());
+        verify(redisTemplate, never()).opsForZSet();
+    }
+
+    @Test
+    void 청크_안에_이미_처리된_receiptId가_있으면_그것만_스킵하고_나머지는_저장한다() {
+        CouponIssuedEvent duplicated = new CouponIssuedEvent(POLICY_ID, 1L, "rcpt_1", LocalDateTime.now());
+        CouponIssuedEvent fresh = new CouponIssuedEvent(POLICY_ID, 2L, "rcpt_2", LocalDateTime.now());
+        CouponPolicy policy = new CouponPolicy("테스트 정책", CouponType.FIXED, 1000, 100,
+                LocalDateTime.now().minusDays(1), null);
+        User user = new User("test@test.com", "테스트유저");
+
+        when(couponHistoryRepository.findExistingRequestIds(List.of("rcpt_1", "rcpt_2")))
+                .thenReturn(Set.of("rcpt_1"));
+        when(couponPolicyRepository.getReferenceById(POLICY_ID)).thenReturn(policy);
+        when(userRepository.getReferenceById(2L)).thenReturn(user);
+        when(couponIssueRepository.save(any(CouponIssue.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(redisTemplate.executePipelined(org.mockito.ArgumentMatchers.<RedisCallback<Object>>any()))
+                .thenReturn(List.of());
+
+        processor.processChunk(List.of(duplicated, fresh));
+
+        // 중복(rcpt_1)은 저장 시도조차 안 하고, 신규(rcpt_2)만 저장된다
+        verify(couponIssueRepository, org.mockito.Mockito.times(1)).save(any(CouponIssue.class));
+        verify(userRepository, never()).getReferenceById(1L);
+    }
+
+    @Test
+    void 청크_전체가_중복이면_저장도_Redis_갱신도_안_한다() {
+        CouponIssuedEvent duplicated = new CouponIssuedEvent(POLICY_ID, 1L, "rcpt_1", LocalDateTime.now());
+        when(couponHistoryRepository.findExistingRequestIds(List.of("rcpt_1")))
+                .thenReturn(Set.of("rcpt_1"));
+
+        processor.processChunk(List.of(duplicated));
+
+        verify(couponIssueRepository, never()).save(any());
+        verify(redisTemplate, never()).executePipelined(org.mockito.ArgumentMatchers.<RedisCallback<Object>>any());
+    }
+
+    @Test
+    void 청크_처리_중_예외가_나면_삼키지_않고_그대로_전파한다() {
+        CouponIssuedEvent event = new CouponIssuedEvent(POLICY_ID, USER_ID, RECEIPT_ID, LocalDateTime.now());
+        when(couponHistoryRepository.findExistingRequestIds(List.of(RECEIPT_ID))).thenReturn(Set.of());
+        when(couponPolicyRepository.getReferenceById(POLICY_ID))
+                .thenThrow(new DataIntegrityViolationException("제약 위반"));
+
+        // processSingle과 달리 processChunk는 DataIntegrityViolationException도 삼키지 않는다 —
+        // 청크 안 다른 이벤트까지 함께 롤백되므로, 호출부(Consumer)가 건별 폴백하도록 그대로 던진다.
+        assertThatThrownBy(() -> processor.processChunk(List.of(event)))
+                .isInstanceOf(DataIntegrityViolationException.class);
     }
 
     // ─────────────────────────────────────────────────
