@@ -3,15 +3,19 @@ package com.ureca.myureca.service;
 import com.ureca.myureca.domain.coupon.CouponIssue;
 import com.ureca.myureca.domain.coupon.IssueStatus;
 import com.ureca.myureca.domain.user.User;
+import com.ureca.myureca.dto.response.CouponDetailResponse;
 import com.ureca.myureca.dto.response.MaskedUserResponse;
 import com.ureca.myureca.dto.response.MyCouponPageResponse;
 import com.ureca.myureca.dto.response.MyCouponResponse;
+import com.ureca.myureca.exception.CouponIssueNotFoundException;
+import com.ureca.myureca.exception.CouponNotOwnedException;
 import com.ureca.myureca.exception.UserNotFoundException;
 import com.ureca.myureca.repository.CouponIssueRepository;
 import com.ureca.myureca.repository.UserRepository;
 import java.time.LocalDateTime;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -26,6 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * {open-in-view: false} 이므로 DTO 변환을 이 트랜잭션 안에서 끝낸다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -53,6 +58,18 @@ public class MyCouponQueryService {
                 coupons,
                 MyCouponPageResponse.PageInfo.from(issues)
         );
+    }
+
+    public CouponDetailResponse getCouponDetail(Long couponIssueId, Long userId) {
+        CouponIssue issue = couponIssueRepository.findDetailById(couponIssueId)
+                .orElseThrow(() -> new CouponIssueNotFoundException(couponIssueId));
+
+        if (!issue.getUser().getId().equals(userId)) {
+            log.warn("타인 쿠폰 조회 시도. couponIssueId={}, requestUserId={}", couponIssueId, userId);
+            throw new CouponNotOwnedException(couponIssueId);
+        }
+
+        return CouponDetailResponse.from(issue, LocalDateTime.now());
     }
 
     private Page<CouponIssue> findIssues(Long userId, IssueStatus status,

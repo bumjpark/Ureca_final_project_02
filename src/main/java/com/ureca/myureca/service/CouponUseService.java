@@ -66,9 +66,9 @@ public class CouponUseService {
                     "현재 상태가 %s 라 %s 로 변경할 수 없습니다. (%s 상태에서만 가능합니다)"
                             .formatted(currentStatus, transition.to(), transition.from()));
         }
-        if (transition == Transition.USE && isPastDue(issue, now)) {
-            // 내 쿠폰함 조회가 displayStatus=EXPIRED 로 보여주는 쿠폰은 여기서도 사용을 막아야 한다.
-            // 두 판정이 어긋나면 "만료라고 보이는데 사용은 되는" 모순이 생긴다.
+        if (transition == Transition.USE && issue.isExpiredAt(now)) {
+            // 내 쿠폰함·상세 조회가 displayStatus=EXPIRED 로 보여주는 쿠폰은 여기서도 사용을 막아야 한다.
+            // 판정을 CouponIssue.isExpiredAt 하나로 모아 세 경로가 절대 어긋나지 않게 한다.
             throw new CouponStatusConflictException("유효기간이 지난 쿠폰입니다. 사용할 수 없습니다.");
         }
 
@@ -132,12 +132,6 @@ public class CouponUseService {
         }
     }
 
-    /** close_at 은 NULL 을 허용한다. NULL 이면 기한이 없다는 뜻이므로 만료되지 않는다. */
-    private boolean isPastDue(CouponIssue issue, LocalDateTime now) {
-        LocalDateTime closeAt = issue.getCouponPolicy().getCloseAt();
-        return closeAt != null && closeAt.isBefore(now);
-    }
-
     private enum Transition {
 
         /** 사용 처리 */
@@ -169,6 +163,14 @@ public class CouponUseService {
 
         IssueStatus to() {
             return to;
+        }
+
+        HistoryPrevStatus fromForHistory() {
+            return switch (from) {
+                case ISSUED -> HistoryPrevStatus.ISSUED;
+                case USED -> HistoryPrevStatus.USED;
+                case EXPIRED -> HistoryPrevStatus.EXPIRED;
+            };
         }
 
         /** 사용 처리만 used_at 을 남기고, 사용 취소·만료는 NULL 로 되돌린다 */

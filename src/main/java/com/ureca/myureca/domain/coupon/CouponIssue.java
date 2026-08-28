@@ -125,4 +125,16 @@ public class CouponIssue {
         }
         this.status = IssueStatus.EXPIRED;
     }
+
+    public boolean isExpiredAt(LocalDateTime now) {
+        if (this.status != IssueStatus.ISSUED) {
+            return false;
+        }
+        LocalDateTime closeAt = this.couponPolicy.getCloseAt();
+        return closeAt != null && closeAt.isBefore(now);
+    }
+
+    public boolean isUsableAt(LocalDateTime now) {
+        return this.status == IssueStatus.ISSUED && !isExpiredAt(now);
+    }
 }

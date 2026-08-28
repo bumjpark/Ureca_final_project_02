@@ -1,16 +1,5 @@
 package com.ureca.myureca.service;
 
-import com.ureca.myureca.domain.coupon.CouponPolicy;
-import com.ureca.myureca.domain.coupon.IssueStatus;
-import com.ureca.myureca.domain.verification.VerificationReport;
-import com.ureca.myureca.domain.verification.VerificationStatus;
-import com.ureca.myureca.repository.CouponHistoryRepository;
-import com.ureca.myureca.repository.CouponHistoryStatusSnapshot;
-import com.ureca.myureca.repository.CouponIssueLifecycleSnapshot;
-import com.ureca.myureca.repository.CouponIssueRepository;
-import com.ureca.myureca.repository.QueueJoinLogRepository;
-import com.ureca.myureca.repository.VerificationReportRepository;
-import com.ureca.myureca.support.RedisKeys;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -23,14 +12,28 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+
+import com.ureca.myureca.domain.coupon.CouponPolicy;
+import com.ureca.myureca.domain.coupon.IssueStatus;
+import com.ureca.myureca.domain.verification.VerificationReport;
+import com.ureca.myureca.domain.verification.VerificationStatus;
+import com.ureca.myureca.repository.CouponHistoryRepository;
+import com.ureca.myureca.repository.CouponHistoryStatusSnapshot;
+import com.ureca.myureca.repository.CouponIssueLifecycleSnapshot;
+import com.ureca.myureca.repository.CouponIssueRepository;
+import com.ureca.myureca.repository.QueueJoinLogRepository;
+import com.ureca.myureca.repository.VerificationReportRepository;
+import com.ureca.myureca.support.RedisKeys;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * PENDING으로 접수된 검증 리포트를 백그라운드에서 처리
