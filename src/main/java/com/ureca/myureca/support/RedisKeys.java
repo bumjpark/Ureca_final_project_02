@@ -46,6 +46,12 @@ public final class RedisKeys {
         return "lock:admission:" + policyId;
     }
 
+    /** 인프라 상태 전환 알림 중복 발송 방지 락 키 (다중 서버 인스턴스 환경에서 한 번의 상태
+     *  전환에 대해 알림을 한 번만 보내도록 조율). alertKind 예: "infra-down", "infra-up" */
+    public static String lockAlert(String alertKind) {
+        return "lock:alert:" + alertKind;
+    }
+
     /** 특정 정책의 동적 대기열 처리 Limit 키 */
     public static String queueLimit(Long policyId) {
         return "queue:limit:" + policyId;

@@ -34,6 +34,7 @@ import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @ExtendWith(MockitoExtension.class)
 class CouponIssuedEventProcessorTest {
@@ -147,18 +148,44 @@ class CouponIssuedEventProcessorTest {
     // ─────────────────────────────────────────────────
 
     @Test
-    void DataIntegrityViolationException_발생시_예외가_전파되지_않고_정상_종료한다() {
+    void DataIntegrityViolationException_발생시_로그만_남기고_그대로_다시_던진다() {
+        // 이슈 #11: 여기서 삼키고 정상 종료하면 이미 rollback-only로 마킹된 트랜잭션을 커밋하려다
+        // UnexpectedRollbackException이 추가로 터진다(실측 확인) — 그래서 다시 던져 예외 기반으로
+        // "정상적으로" 롤백시켜야 한다. 이 예외를 "정상적인 중복 스킵"으로 처리하는 건
+        // 호출부(KafkaCouponEventConsumer)의 책임이다.
         CouponPolicy policy = new CouponPolicy("테스트 정책", CouponType.FIXED, 1000, 100,
                 LocalDateTime.now().minusDays(1), null);
         User user = new User("test@test.com", "테스트유저");
         when(couponHistoryRepository.existsByRequestId(RECEIPT_ID)).thenReturn(false);
         when(couponPolicyRepository.getReferenceById(POLICY_ID)).thenReturn(policy);
         when(userRepository.getReferenceById(USER_ID)).thenReturn(user);
-        when(couponIssueRepository.save(any())).thenThrow(new DataIntegrityViolationException("uk_policy_user 위반"));
+        DataIntegrityViolationException original = new DataIntegrityViolationException("uk_policy_user 위반");
+        when(couponIssueRepository.save(any())).thenThrow(original);
 
-        // DataIntegrityViolationException은 catch되어 밖으로 전파되지 않아야 한다
-        assertThatCode(() -> processor.processSingle(sampleEvent()))
-                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> processor.processSingle(sampleEvent()))
+                .isSameAs(original);
+    }
+
+    // ─────────────────────────────────────────────────
+    // 이슈 #17 — FK 위반과 UNIQUE 위반을 로그상 구분한다
+    // ─────────────────────────────────────────────────
+
+    @Test
+    void FK_위반은_UNIQUE_위반과_다르게_로깅되지만_예외는_동일하게_다시_던져진다() {
+        CouponPolicy policy = new CouponPolicy("테스트 정책", CouponType.FIXED, 1000, 100,
+                LocalDateTime.now().minusDays(1), null);
+        User user = new User("test@test.com", "테스트유저");
+        when(couponHistoryRepository.existsByRequestId(RECEIPT_ID)).thenReturn(false);
+        when(couponPolicyRepository.getReferenceById(POLICY_ID)).thenReturn(policy);
+        when(userRepository.getReferenceById(USER_ID)).thenReturn(user);
+        java.sql.SQLIntegrityConstraintViolationException sqlCause = new java.sql.SQLIntegrityConstraintViolationException(
+                "Cannot add or update a child row: a foreign key constraint fails "
+                        + "(`coupon_db`.`coupon_issue`, CONSTRAINT `fk_issue_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`))");
+        DataIntegrityViolationException original = new DataIntegrityViolationException("FK 위반", sqlCause);
+        when(couponIssueRepository.save(any())).thenThrow(original);
+
+        assertThatThrownBy(() -> processor.processSingle(sampleEvent()))
+                .isSameAs(original);
     }
 
     // ─────────────────────────────────────────────────
@@ -237,6 +264,72 @@ class CouponIssuedEventProcessorTest {
         // 청크 안 다른 이벤트까지 함께 롤백되므로, 호출부(Consumer)가 건별 폴백하도록 그대로 던진다.
         assertThatThrownBy(() -> processor.processChunk(List.of(event)))
                 .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    // ─────────────────────────────────────────────────
+    // 이슈 #10 — Redis 반영은 트랜잭션 커밋 이후에만 실행돼야 한다
+    // ─────────────────────────────────────────────────
+
+    @Test
+    void 트랜잭션_동기화가_활성_상태면_Redis_갱신은_커밋_전에는_실행되지_않는다() {
+        CouponPolicy policy = new CouponPolicy("테스트 정책", CouponType.FIXED, 1000, 100,
+                LocalDateTime.now().minusDays(1), null);
+        User user = new User("test@test.com", "테스트유저");
+        when(couponHistoryRepository.existsByRequestId(RECEIPT_ID)).thenReturn(false);
+        when(couponPolicyRepository.getReferenceById(POLICY_ID)).thenReturn(policy);
+        when(userRepository.getReferenceById(USER_ID)).thenReturn(user);
+        when(couponIssueRepository.save(any(CouponIssue.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            processor.processSingle(sampleEvent());
+
+            // flush까지는 실행됐지만(=DB 저장 자체는 끝), 트랜잭션이 아직 커밋되지 않았으므로
+            // Redis 반영은 콜백으로 등록만 되고 아직 실행되면 안 된다.
+            verify(couponIssueRepository).save(any(CouponIssue.class));
+            verify(redisTemplate, never()).opsForZSet();
+            verify(redisTemplate, never()).opsForSet();
+
+            // 커밋 시뮬레이션 — 이 시점에야 등록해둔 콜백이 실행된다.
+            when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
+            when(redisTemplate.opsForSet()).thenReturn(setOperations);
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(sync -> sync.afterCommit());
+
+            verify(zSetOperations).remove("coupon:policy:" + POLICY_ID + ":reserved", String.valueOf(USER_ID));
+            verify(setOperations).add("coupon:policy:" + POLICY_ID + ":issued", String.valueOf(USER_ID));
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    void 청크_처리도_트랜잭션_동기화가_활성_상태면_Redis_갱신이_커밋_이후로_미뤄진다() {
+        CouponIssuedEvent event = new CouponIssuedEvent(POLICY_ID, USER_ID, RECEIPT_ID, LocalDateTime.now());
+        CouponPolicy policy = new CouponPolicy("테스트 정책", CouponType.FIXED, 1000, 100,
+                LocalDateTime.now().minusDays(1), null);
+        User user = new User("test@test.com", "테스트유저");
+        when(couponHistoryRepository.findExistingRequestIds(List.of(RECEIPT_ID))).thenReturn(Set.of());
+        when(couponPolicyRepository.getReferenceById(POLICY_ID)).thenReturn(policy);
+        when(userRepository.getReferenceById(USER_ID)).thenReturn(user);
+        when(couponIssueRepository.save(any(CouponIssue.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            processor.processChunk(List.of(event));
+
+            verify(redisTemplate, never())
+                    .executePipelined(org.mockito.ArgumentMatchers.<RedisCallback<Object>>any());
+
+            when(redisTemplate.executePipelined(org.mockito.ArgumentMatchers.<RedisCallback<Object>>any()))
+                    .thenReturn(List.of());
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(sync -> sync.afterCommit());
+
+            verify(redisTemplate).executePipelined(org.mockito.ArgumentMatchers.<RedisCallback<Object>>any());
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 
     // ─────────────────────────────────────────────────

@@ -88,4 +88,38 @@ class CouponPolicyCacheServiceTest {
         assertThatThrownBy(() -> cacheService.getPolicy(999L))
                 .isInstanceOf(CouponPolicyNotFoundException.class);
     }
+
+    // ─────────────────────────────────────────────────
+    // 이슈 #14 — negative caching
+    // ─────────────────────────────────────────────────
+
+    @Test
+    void 존재하지_않는_정책을_반복_조회해도_DB는_한_번만_조회한다() {
+        when(couponPolicyRepository.findByIdAndDeletedAtIsNull(999L))
+                .thenReturn(Optional.empty());
+
+        for (int i = 0; i < 100; i++) {
+            assertThatThrownBy(() -> cacheService.getPolicy(999L))
+                    .isInstanceOf(CouponPolicyNotFoundException.class);
+        }
+
+        // 오타/스캐닝성 반복 요청이 매번 DB로 직행하지 않고 negative cache로 막힌다
+        verify(couponPolicyRepository, times(1)).findByIdAndDeletedAtIsNull(999L);
+    }
+
+    @Test
+    void evict_호출_시_negative_cache도_함께_제거되어_다음_조회는_DB를_다시_본다() {
+        when(couponPolicyRepository.findByIdAndDeletedAtIsNull(999L))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(testPolicy));
+
+        assertThatThrownBy(() -> cacheService.getPolicy(999L))
+                .isInstanceOf(CouponPolicyNotFoundException.class);
+
+        cacheService.evict(999L); // 예: 방금 이 id로 정책이 새로 생성된 경우
+
+        CouponPolicyCacheService.CachedPolicy result = cacheService.getPolicy(999L);
+        assertThat(result).isNotNull();
+        verify(couponPolicyRepository, times(2)).findByIdAndDeletedAtIsNull(999L);
+    }
 }

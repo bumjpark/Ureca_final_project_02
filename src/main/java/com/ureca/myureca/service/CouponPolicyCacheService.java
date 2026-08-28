@@ -24,6 +24,10 @@ public class CouponPolicyCacheService {
     private final CouponPolicyRepository couponPolicyRepository;
     private final Map<Long, CachedPolicy> cache = new ConcurrentHashMap<>();
 
+    /** 존재하지 않는 policyId 조회 결과를 캐싱한다(이슈 #14, negative caching).
+     * 오타/스캐닝성 요청이 반복돼도 DB로 매번 직행하지 않도록 방어한다. value=캐싱된 시각(ms). */
+    private final Map<Long, Long> notFoundCache = new ConcurrentHashMap<>();
+
     /** 로컬 캐시 유효 시간: 5초 (짧은 TTL로 DB 변경사항의 최종 일관성 보장) */
     private static final long CACHE_TTL_MS = 5000L;
 
@@ -53,18 +57,33 @@ public class CouponPolicyCacheService {
             return cached;
         }
 
-        CouponPolicy policy = couponPolicyRepository.findByIdAndDeletedAtIsNull(policyId)
-                .orElseThrow(() -> new CouponPolicyNotFoundException(policyId));
+        Long notFoundAt = notFoundCache.get(policyId);
+        if (notFoundAt != null && !isExpired(notFoundAt)) {
+            throw new CouponPolicyNotFoundException(policyId);
+        }
 
-        CachedPolicy newCache = new CachedPolicy(
-                policy.getId(),
-                policy.getOpenAt(),
-                policy.getCloseAt(),
-                policy.getTotalQuantity(),
-                System.currentTimeMillis()
-        );
-        cache.put(policyId, newCache);
-        return newCache;
+        try {
+            CouponPolicy policy = couponPolicyRepository.findByIdAndDeletedAtIsNull(policyId)
+                    .orElseThrow(() -> new CouponPolicyNotFoundException(policyId));
+
+            CachedPolicy newCache = new CachedPolicy(
+                    policy.getId(),
+                    policy.getOpenAt(),
+                    policy.getCloseAt(),
+                    policy.getTotalQuantity(),
+                    System.currentTimeMillis()
+            );
+            cache.put(policyId, newCache);
+            notFoundCache.remove(policyId);
+            return newCache;
+        } catch (CouponPolicyNotFoundException e) {
+            notFoundCache.put(policyId, System.currentTimeMillis());
+            throw e;
+        }
+    }
+
+    private boolean isExpired(long cachedAt) {
+        return System.currentTimeMillis() - cachedAt > CACHE_TTL_MS;
     }
 
     private volatile CachedPolicyList cachedActivePolicies;
@@ -97,6 +116,7 @@ public class CouponPolicyCacheService {
     /** 정책 수정/삭제/생성 시 캐시 즉시 제거 */
     public void evict(Long policyId) {
         cache.remove(policyId);
+        notFoundCache.remove(policyId);
         cachedActivePolicies = null;
         log.debug("CouponPolicy cache evicted. policyId={}", policyId);
     }

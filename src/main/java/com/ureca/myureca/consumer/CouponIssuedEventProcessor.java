@@ -19,11 +19,12 @@ import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * Kafka Consumer가 수신한 CouponIssuedEvent를 DB에 반영하는 처리기.
@@ -116,7 +117,7 @@ public class CouponIssuedEventProcessor {
         log.info("[KafkaConsumer] 청크 처리 완료 — 전체 {}건 중 신규 저장 {}건(중복 스킵 {}건)",
                 events.size(), savedIssues.size(), events.size() - savedIssues.size());
 
-        confirmRedisStateBatch(savedIssues);
+        confirmRedisStateBatchAfterCommit(savedIssues);
     }
 
     /**
@@ -124,8 +125,10 @@ public class CouponIssuedEventProcessor {
      *
      * <p>예외 처리 갈래:
      * <ul>
-     *   <li>{@link DataIntegrityViolationException} → catch 후 INFO 로그만 남기고 정상 종료.
-     *       DB UNIQUE 제약(request_id)을 통한 2차 멱등성 방어 결과이므로 재시도 불필요.</li>
+     *   <li>{@link DataIntegrityViolationException} → 로그만 남기고 그대로 다시 던진다(이슈 #11).
+     *       삼키고 정상 종료하면 이미 rollback-only로 마킹된 트랜잭션을 커밋하려다
+     *       {@code UnexpectedRollbackException}이 추가로 터진다 — 이 예외를 정상적인 "중복
+     *       스킵"으로 처리하는 건 호출부({@code KafkaCouponEventConsumer})의 책임이다.</li>
      *   <li>그 외 예외 → catch하지 않고 위로 throw. DefaultErrorHandler가 FixedBackOff로 재시도.</li>
      * </ul>
      *
@@ -170,16 +173,81 @@ public class CouponIssuedEventProcessor {
             log.info("[KafkaConsumer] 쿠폰 발급 DB 반영 완료 — receiptId={}, policyId={}, userId={}, issueId={}",
                     event.receiptId(), event.policyId(), event.userId(), couponIssue.getId());
 
-            confirmRedisState(event);
+            confirmRedisStateAfterCommit(event);
 
         } catch (DataIntegrityViolationException e) {
-            // 2차 방어: 극히 드문 동시 진입으로 인한 UNIQUE 제약 위반
-            // 재시도해도 제약이 해소되지 않으므로 예외를 삼키고 정상 종료한다.
-            log.info("[KafkaConsumer] DB UNIQUE 제약 위반 → 중복 처리로 스킵 (정상 종료) — receiptId={}, policyId={}, userId={}",
-                    event.receiptId(), event.policyId(), event.userId());
+            // 2차 방어. 이 catch가 잡는 케이스는 성격이 다른 두 가지가 섞여 있다(이슈 #17):
+            //   (a) UNIQUE 제약(uk_policy_user, uk_history_request) 위반 — 극히 드문 동시 진입으로
+            //       인한 진짜 "중복". 재시도해도 해소되지 않으므로 재시도만 불필요할 뿐이다.
+            //   (b) FK 제약(fk_issue_policy, fk_issue_user) 위반 — policyId/userId가 실제로
+            //       존재하지 않는다는 뜻. "중복"이 아니라 데이터 정합성 문제이므로 같은 문구로
+            //       뭉뚱그리면 운영 중 원인 파악이 늦어진다(실측: 테스트 유저 시딩 갭을 이 로그
+            //       때문에 "정상적인 중복 방어"로 오인해서 한동안 놓칠 뻔함).
+            if (isForeignKeyViolation(e)) {
+                log.warn("[KafkaConsumer] DB FK 제약 위반 → policyId/userId가 실제로 존재하지 않음(데이터 문제, "
+                                + "\"중복\"이 아님) — receiptId={}, policyId={}, userId={}, cause={}",
+                        event.receiptId(), event.policyId(), event.userId(), rootCauseMessage(e));
+            } else {
+                log.info("[KafkaConsumer] DB UNIQUE 제약 위반 → 중복 — receiptId={}, policyId={}, userId={}",
+                        event.receiptId(), event.policyId(), event.userId());
+            }
+            // 여기서 삼키고 정상 리턴하면 안 된다(이슈 #11, 실측으로 확인된 버그): 방금 flush()가
+            // 실패하면서 Hibernate가 이 트랜잭션을 이미 rollback-only로 마킹해뒀는데, 예외를 삼킨
+            // 채 메서드가 정상 종료되면 Spring 트랜잭션 프록시는 COMMIT을 시도하다가
+            // UnexpectedRollbackException을 새로 던진다 — 이게 그대로 KafkaCouponEventConsumer의
+            // 폴백 루프로 전파되면 "진짜 실패"로 오인돼 재시도 4번을 낭비하고 DLT까지 잘못 실린다
+            // (정상적인 멱등 중복 스킵이었을 뿐인데도). 그래서 같은 예외를 다시 던져 트랜잭션을
+            // 예외 기반으로 "정상적으로" 롤백시킨다 — 호출부(KafkaCouponEventConsumer)가 이
+            // DataIntegrityViolationException을 별도로 잡아 "정상적인 스킵"으로 처리한다.
+            throw e;
         }
         // DataIntegrityViolationException 외 다른 예외(DB 커넥션 오류 등)는
         // 잡지 않고 그대로 위로 throw → DefaultErrorHandler가 받아서 FixedBackOff 재시도
+    }
+
+    /**
+     * FK 제약 위반인지 판별한다(이슈 #17). MySQL 8은 UNIQUE 위반과 FK 위반 둘 다 Spring이
+     * {@link DataIntegrityViolationException}으로 번역하기 때문에 타입만으로는 구분이 안 되고,
+     * 근본 원인(대개 {@code java.sql.SQLIntegrityConstraintViolationException})의 메시지로
+     * 구분해야 한다 — MySQL은 FK 위반 시 "a foreign key constraint fails" 문구를 포함한다
+     * (실측: {@code Cannot add or update a child row: a foreign key constraint fails
+     * (`coupon_db`.`coupon_issue`, CONSTRAINT `fk_issue_user` ...)}).
+     */
+    private boolean isForeignKeyViolation(DataIntegrityViolationException e) {
+        String message = rootCauseMessage(e);
+        return message != null && message.toLowerCase().contains("foreign key constraint");
+    }
+
+    private String rootCauseMessage(DataIntegrityViolationException e) {
+        Throwable cause = e.getMostSpecificCause();
+        return cause != null ? cause.getMessage() : e.getMessage();
+    }
+
+    /**
+     * {@link #confirmRedisState}를 트랜잭션 커밋 이후로 미룬다(이슈 #10).
+     *
+     * <p>이 클래스는 {@code @Transactional} 메서드 안에서 명시적으로 {@code flush()}를 호출해
+     * INSERT를 물리적으로 내보내지만, flush는 "이 트랜잭션 안에서 DB에 반영됨"이지 "커밋
+     * 확정"이 아니다 — flush 이후에도 커밋 자체가 실패할 여지가 있다(드물지만 가능: 커넥션 드롭,
+     * 격리 수준 충돌 등). 그 좁은 창에서 Redis를 먼저 issued로 바꿔버리면, 커밋이 실패했을 때
+     * "Redis는 발급 완료인데 DB엔 없는" 상태가 남는다.
+     *
+     * <p>{@link TransactionSynchronizationManager#registerSynchronization}으로 커밋 성공 이후
+     * 콜백을 등록해서, Redis 반영이 "DB에 실제로 커밋된 건"에 대해서만 실행되도록 한다.
+     * 트랜잭션 동기화가 비활성 상태(이론상 이 클래스의 메서드들은 전부 {@code @Transactional}이라
+     * 발생하지 않아야 하지만, 방어적으로) 라면 예전처럼 즉시 실행한다.
+     */
+    private void confirmRedisStateAfterCommit(CouponIssuedEvent event) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            confirmRedisState(event);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                confirmRedisState(event);
+            }
+        });
     }
 
     /**
@@ -206,6 +274,20 @@ public class CouponIssuedEventProcessor {
                             + "receiptId={}, policyId={}, userId={}",
                     event.receiptId(), event.policyId(), event.userId(), e);
         }
+    }
+
+    /** {@link #confirmRedisStateAfterCommit}의 청크 버전 — 동일한 이유(이슈 #10)로 커밋 이후로 미룬다. */
+    private void confirmRedisStateBatchAfterCommit(List<CouponIssue> savedIssues) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            confirmRedisStateBatch(savedIssues);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                confirmRedisStateBatch(savedIssues);
+            }
+        });
     }
 
     /**

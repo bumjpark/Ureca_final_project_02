@@ -5,6 +5,7 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
@@ -40,7 +41,13 @@ public class DltEventConsumer {
     public void consume(List<ConsumerRecord<String, CouponIssuedEvent>> records) {
         log.debug("[DltEventConsumer] 배치 수신 — topic={}, size={}", DLT_TOPIC, records.size());
         for (ConsumerRecord<String, CouponIssuedEvent> record : records) {
-            processor.processSingle(record);
+            try {
+                processor.processSingle(record);
+            } catch (DataIntegrityViolationException dive) {
+                // 진짜 실패가 아니다(이슈 #11) — eventKey UNIQUE 위반으로 트랜잭션을 정상 롤백시키기
+                // 위해 processor가 일부러 다시 던진 것뿐이다. 로그는 processor 안에서 이미 남겼으므로
+                // 여기서는 조용히 다음 레코드로 넘어간다.
+            }
         }
     }
 }

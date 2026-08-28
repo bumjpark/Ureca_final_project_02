@@ -76,7 +76,16 @@ public class DltEventProcessor {
                     eventKey, originalTopic, failureReason);
         } catch (DataIntegrityViolationException e) {
             // 2차 방어: eventKey UNIQUE(uk_reconciliation_event_key) 위반 — 동시 진입으로 인한 중복.
-            log.info("[DltEventConsumer] eventKey UNIQUE 제약 위반 → 중복 적재로 스킵 — eventKey={}", eventKey);
+            log.info("[DltEventConsumer] eventKey UNIQUE 제약 위반 → 중복 — eventKey={}", eventKey);
+            // 여기서 삼키고 정상 리턴하면 안 된다(이슈 #11과 동일한 버그, 실측으로 확인됨):
+            // ReconciliationLog는 IDENTITY 전략이라 save() 시점에 즉시 flush되고, 그 INSERT가
+            // UNIQUE 위반으로 실패하면서 Hibernate가 이 트랜잭션을 이미 rollback-only로 마킹해둔다.
+            // 예외를 삼킨 채 메서드가 정상 종료되면 Spring이 COMMIT을 시도하다가
+            // UnexpectedRollbackException을 새로 던지고, 이게 DltEventConsumer로 전파되면
+            // 정상적인 중복 스킵이 "진짜 실패"로 오인돼 불필요한 재시도를 유발한다. 같은 예외를
+            // 다시 던져 트랜잭션을 예외 기반으로 정상 롤백시킨다 — 호출부가 "정상적인 스킵"으로
+            // 처리한다.
+            throw e;
         }
     }
 

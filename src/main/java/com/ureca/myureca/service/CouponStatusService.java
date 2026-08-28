@@ -4,6 +4,7 @@ import com.ureca.myureca.domain.coupon.CouponPolicy;
 import com.ureca.myureca.dto.response.CouponStatusResponse;
 import com.ureca.myureca.exception.CouponPolicyNotFoundException;
 import com.ureca.myureca.repository.CouponPolicyRepository;
+import com.ureca.myureca.support.RedisKeys;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -27,8 +28,7 @@ public class CouponStatusService {
         int totalQuantity = couponPolicy.getTotalQuantity();
 
         // 2. Redis에서 실시간 재고 조회 (UBM-14 키 규격과 일치)
-        String stockKey = "coupon:policy:" + policyId + ":stock";
-        String stockValue = redisTemplate.opsForValue().get(stockKey);
+        String stockValue = redisTemplate.opsForValue().get(RedisKeys.couponStock(policyId));
 
         // Redis에 재고 키가 없으면 기본 총 수량으로 방어
         int remainingQuantity = (stockValue != null) ? Integer.parseInt(stockValue) : totalQuantity;

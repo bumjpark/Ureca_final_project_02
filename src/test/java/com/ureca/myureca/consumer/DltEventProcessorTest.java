@@ -95,11 +95,17 @@ class DltEventProcessorTest {
     }
 
     @Test
-    void eventKey_UNIQUE_제약_위반시_예외가_전파되지_않는다() {
+    void eventKey_UNIQUE_제약_위반시_로그만_남기고_그대로_다시_던진다() {
+        // 이슈 #11: ReconciliationLog는 IDENTITY 전략이라 save()가 즉시 flush되고, 그 INSERT가
+        // UNIQUE 위반으로 실패하면 Hibernate가 트랜잭션을 이미 rollback-only로 마킹해둔다.
+        // 여기서 삼키고 정상 종료하면 커밋 시도 중 UnexpectedRollbackException이 추가로 터진다
+        // (CouponIssuedEventProcessor와 동일한 버그, 실측 확인) — 그래서 다시 던져야 한다.
         CouponIssuedEvent event = new CouponIssuedEvent(5L, 1L, RECEIPT_ID, LocalDateTime.now());
         when(reconciliationLogRepository.existsByEventKey(RECEIPT_ID)).thenReturn(false);
-        when(reconciliationLogRepository.save(any())).thenThrow(new DataIntegrityViolationException("uk_reconciliation_event_key 위반"));
+        DataIntegrityViolationException original = new DataIntegrityViolationException("uk_reconciliation_event_key 위반");
+        when(reconciliationLogRepository.save(any())).thenThrow(original);
 
-        assertThatCode(() -> processor.processSingle(recordWith(event))).doesNotThrowAnyException();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> processor.processSingle(recordWith(event)))
+                .isSameAs(original);
     }
 }

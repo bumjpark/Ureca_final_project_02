@@ -5,6 +5,7 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.listener.BatchListenerFailedException;
 import org.springframework.stereotype.Component;
@@ -84,6 +85,12 @@ public class KafkaCouponEventConsumer {
                     CouponIssuedEvent event = chunk.get(i);
                     try {
                         processor.processSingle(event);
+                    } catch (DataIntegrityViolationException dive) {
+                        // 진짜 실패가 아니다(이슈 #11) — UNIQUE/FK 제약 위반으로 트랜잭션을 정상
+                        // 롤백시키기 위해 processSingle이 일부러 다시 던진 것뿐이다. 이미 처리 로그는
+                        // processSingle 안에서 남겼으므로 여기서는 조용히 다음 이벤트로 넘어간다.
+                        // BatchListenerFailedException으로 격리하면 안 된다 — 그러면 정상적인 중복
+                        // 스킵 건이 재시도/DLT 대상으로 잘못 취급된다.
                     } catch (Exception singleEx) {
                         int absoluteIndex = start + i;
                         log.warn("[KafkaConsumer] 건별 재처리도 실패 — 이 레코드(index={})만 격리해 재시도/DLT 대상으로 넘김. "
