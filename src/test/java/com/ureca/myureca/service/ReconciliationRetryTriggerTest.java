@@ -81,6 +81,21 @@ class ReconciliationRetryTriggerTest {
     }
 
     @Test
+    void DLT_REPROCESS_타입도_EVENT_REPUBLISH와_동일하게_재발행된다() {
+        ReconciliationLog target = log(ReconciliationType.DLT_REPROCESS, ReconciliationStatus.PENDING, validPayload());
+        when(reconciliationLogRepository.findById(1L)).thenReturn(Optional.of(target));
+        when(kafkaCouponEventProducer.publishCouponIssuedEventForRetry(any()))
+                .thenReturn(new CompletableFuture<SendResult<String, Object>>());
+
+        ReconciliationLogResponse response = trigger.dispatch(1L);
+
+        assertThat(target.getRetryCount()).isEqualTo(1);
+        assertThat(response.status()).isEqualTo(ReconciliationStatus.PENDING);
+        verify(kafkaCouponEventProducer).publishCouponIssuedEventForRetry(
+                new CouponIssuedEvent(1L, 100L, "rcpt_1", LocalDateTime.parse("2026-08-24T00:00:00")));
+    }
+
+    @Test
     void 이미_SUCCESS인_로그는_예외가_발생한다() {
         ReconciliationLog target = log(ReconciliationType.EVENT_REPUBLISH, ReconciliationStatus.SUCCESS, validPayload());
         when(reconciliationLogRepository.findById(1L)).thenReturn(Optional.of(target));

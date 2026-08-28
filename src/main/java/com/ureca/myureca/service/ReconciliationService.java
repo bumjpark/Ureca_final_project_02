@@ -57,11 +57,15 @@ public class ReconciliationService {
      * 한 트랜잭션으로 묶지 않는다(NOT_SUPPORTED) — 묶으면 중간에 예기치 못한 예외가 났을 때
      * 이미 처리된 행들의 retryCount 증가/markFailed까지 같이 롤백돼서, "이미 접수됨"이라고
      * 응답하는 것과 실제 DB 상태가 어긋난다. VerificationService.runVerification()과 동일 이유.
+     *
+     * @param type 전체 재처리 대상 타입. EVENT_REPUBLISH 또는 DLT_REPROCESS만 지원한다(다른 타입을
+     *             넘기면 대상이 0건이라 빈 리스트가 반환되거나, dispatch() 단계에서
+     *             ReconciliationTypeNotSupportedException으로 걸러진다).
      */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public List<ReconciliationLogResponse> retryAll() {
+    public List<ReconciliationLogResponse> retryAll(ReconciliationType type) {
         List<Long> targetIds = reconciliationLogRepository
-                .findByTypeAndStatusIn(ReconciliationType.EVENT_REPUBLISH, RETRYABLE_STATUSES)
+                .findByTypeAndStatusIn(type, RETRYABLE_STATUSES)
                 .stream()
                 .map(ReconciliationLog::getId)
                 .toList();

@@ -21,4 +21,7 @@ public interface ReconciliationLogRepository extends JpaRepository<Reconciliatio
 
     Page<ReconciliationLog> findByTypeAndStatusOrderByCreatedAtDesc(
             ReconciliationType type, ReconciliationStatus status, Pageable pageable);
+
+    /** DLT 소비 컨슈머의 인박스 체크(1차 방어)용. */
+    boolean existsByEventKey(String eventKey);
 }

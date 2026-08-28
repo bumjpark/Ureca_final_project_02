@@ -48,9 +48,10 @@ public class KafkaConsumerConfig {
     /**
      * ConsumerFailureRecoverer 인터페이스로 주입받는다.
      *
-     * <p>이번 이슈: LoggingFailureRecoverer (구조화된 실패 로그만 기록)
-     * 다음 이슈: DltPublishingFailureRecoverer로 교체 — 이 Config의 @Primary 변경 또는
-     * @ConditionalOnProperty로 전환하면 되며, Consumer 비즈니스 로직 수정 불필요.
+     * <p>현재: {@link com.ureca.myureca.consumer.DltPublishingFailureRecoverer}
+     * (재시도 모두 실패한 메시지를 DLT 토픽으로 실제 이적재, {@code @Primary}로 지정됨).
+     * DLT 발행 자체가 실패하면 {@link com.ureca.myureca.consumer.LoggingFailureRecoverer}로
+     * 폴백해 구조화된 로그를 남긴다 (UBM-37).
      */
     private final ConsumerFailureRecoverer failureRecoverer;
     private final ObjectMapper objectMapper;

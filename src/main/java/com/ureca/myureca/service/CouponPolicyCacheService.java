@@ -31,8 +31,13 @@ public class CouponPolicyCacheService {
             Long id,
             LocalDateTime openAt,
             LocalDateTime closeAt,
+            int totalQuantity,
             long cachedAt
     ) {
+        public CachedPolicy(Long id, LocalDateTime openAt, LocalDateTime closeAt, long cachedAt) {
+            this(id, openAt, closeAt, 10000, cachedAt);
+        }
+
         public boolean isExpired() {
             return System.currentTimeMillis() - cachedAt > CACHE_TTL_MS;
         }
@@ -55,15 +60,44 @@ public class CouponPolicyCacheService {
                 policy.getId(),
                 policy.getOpenAt(),
                 policy.getCloseAt(),
+                policy.getTotalQuantity(),
                 System.currentTimeMillis()
         );
         cache.put(policyId, newCache);
         return newCache;
     }
 
-    /** 정책 수정/삭제 시 캐시 즉시 제거 */
+    private volatile CachedPolicyList cachedActivePolicies;
+
+    public record CachedPolicyList(java.util.List<CachedPolicy> policies, long cachedAt) {
+        public boolean isExpired() {
+            return System.currentTimeMillis() - cachedAt > CACHE_TTL_MS;
+        }
+    }
+
+    /**
+     * 스케줄러를 위한 활성 정책 목록 캐시 조회.
+     * 매초 DB를 찌르지 않고 메모리에서 캐싱(5초 TTL)하여 DB IOPS를 0으로 유지한다.
+     */
+    public java.util.List<CachedPolicy> getActivePolicies() {
+        CachedPolicyList current = cachedActivePolicies;
+        if (current != null && !current.isExpired()) {
+            return current.policies();
+        }
+
+        java.util.List<CouponPolicy> list = couponPolicyRepository.findByDeletedAtIsNull(org.springframework.data.domain.Pageable.unpaged()).getContent();
+        java.util.List<CachedPolicy> cachedList = list.stream()
+                .map(p -> new CachedPolicy(p.getId(), p.getOpenAt(), p.getCloseAt(), p.getTotalQuantity(), System.currentTimeMillis()))
+                .toList();
+
+        cachedActivePolicies = new CachedPolicyList(cachedList, System.currentTimeMillis());
+        return cachedList;
+    }
+
+    /** 정책 수정/삭제/생성 시 캐시 즉시 제거 */
     public void evict(Long policyId) {
         cache.remove(policyId);
+        cachedActivePolicies = null;
         log.debug("CouponPolicy cache evicted. policyId={}", policyId);
     }
 }
