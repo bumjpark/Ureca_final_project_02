@@ -1,0 +1,31 @@
+# k6 부하테스트 전용 오버레이. 기본 docker-compose.yml과 같이 띄운다(-f 두 개):
+#   docker compose -f docker-compose.yml -f docker-compose.loadtest.yml up -d --build
+#   docker compose -f docker-compose.yml -f docker-compose.loadtest.yml --profile loadtest run --rm k6 run /scripts/burst-20k.js
+#
+# k6 서비스는 profiles: [loadtest]라 평소 `docker compose up`에는 안 뜨고, --profile loadtest를
+# 붙였을 때만(주로 `run --rm`으로 1회성 실행) 대상이 된다. 네트워크(coupon-network)는
+# 기본 docker-compose.yml에서 이미 선언돼 있어 -f로 같이 로드하면 그대로 합쳐진다.
+services:
+  k6:
+    image: grafana/k6:latest
+    container_name: coupon-k6
+    profiles: ["loadtest"]
+    volumes:
+      - ./loadtest:/scripts:ro
+    environment:
+      BASE_URL: http://app:8080
+      POLICY_ID: ${POLICY_ID:-}
+      STOCK: ${STOCK:-10000}
+      PEAK: ${PEAK:-500}
+      RAMP: ${RAMP:-10s}
+      HOLD: ${HOLD:-30s}
+      MODE: ${MODE:-vus}
+      # 비워두면(기본) k6 스크립트가 setup()에서 GET /api/users로 실제 시딩된 유저 수를 물어봐서
+      # 자동으로 맞춘다 — 여기서 임의의 숫자로 기본값을 박아두면 시딩 규모가 바뀔 때마다 어긋난다.
+      MAX_USER_ID: ${MAX_USER_ID:-}
+      QUEUE_LIMIT: ${QUEUE_LIMIT:-}
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - coupon-network
