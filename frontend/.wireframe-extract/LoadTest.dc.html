@@ -1,0 +1,54 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #f4f4f5; }
+    .note { border: 1px dashed #a1a1aa; background: #f4f4f5; padding: 8px 12px; font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #52525b; line-height: 1.5; }
+    .note b { display:block; color:#18181b; font-size:12px; margin-bottom:2px; }
+    .panel { border:1px solid #d4d4d8; border-radius:8px; padding:20px; }
+    .dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px; }
+  </style>
+</helmet>
+<div style="width:960px; min-height:640px; background:#fff; box-sizing:border-box; display:flex; flex-direction:column;">
+  <div class="note" style="border-radius:0;">
+    <b>[관리자] 부하테스트 / 데이터 관리 화면</b>
+    API: POST /api/admin/test/reset, GET /api/health
+  </div>
+
+  <div style="padding:24px; max-width:640px; display:flex; flex-direction:column; gap:20px;">
+    <div style="font-size:19px; font-weight:700; color:#18181b;">부하테스트 · 데이터 관리</div>
+
+    <div class="panel">
+      <div style="font-size:13px; font-weight:600; color:#18181b; margin-bottom:10px;">시스템 헬스체크</div>
+      <div style="display:flex; align-items:center; font-size:13px; color:#3f3f46;">
+        <span class="dot" style="background:#18181b;"></span> 정상 (OK) · 마지막 확인 10초 전
+      </div>
+    </div>
+
+    <div class="panel" style="border-color:#71717a;">
+      <div style="font-size:13px; font-weight:600; color:#18181b; margin-bottom:6px;">테스트 데이터 초기화</div>
+      <div style="font-size:12px; color:#71717a; margin-bottom:14px; line-height:1.6;">부하테스트를 반복 실행하기 위해 발급 이력 등 테스트 데이터를 초기화합니다.<br>운영 환경에서는 사용하지 마세요.</div>
+      <button style="padding:12px 18px; font-size:13px; font-weight:600; border-radius:6px; border:1px solid #3f3f46; background:#fff; color:#18181b;">데이터 초기화 실행</button>
+    </div>
+
+    <div style="border:1px dashed #d4d4d8; border-radius:6px; padding:12px 16px; font-size:11px; color:#a1a1aa; line-height:1.6;">
+      <b style="color:#52525b;">확인 필요</b> 초기화는 되돌릴 수 없어 실행 전 확인 다이얼로그(예: "정말 초기화하시겠습니까?")를 거칩니다.
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

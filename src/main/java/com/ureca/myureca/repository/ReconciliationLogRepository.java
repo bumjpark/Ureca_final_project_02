@@ -5,9 +5,12 @@ import com.ureca.myureca.domain.reconciliation.ReconciliationStatus;
 import com.ureca.myureca.domain.reconciliation.ReconciliationType;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface ReconciliationLogRepository extends JpaRepository<ReconciliationLog, Long> {
 
@@ -35,15 +38,29 @@ public interface ReconciliationLogRepository extends JpaRepository<Reconciliatio
             int retryCountLimit,
             org.springframework.data.domain.Pageable pageable);
 
-    Page<ReconciliationLog> findAllByOrderByCreatedAtDesc(Pageable pageable);
-
-    Page<ReconciliationLog> findByTypeOrderByCreatedAtDesc(ReconciliationType type, Pageable pageable);
-
-    Page<ReconciliationLog> findByStatusOrderByCreatedAtDesc(ReconciliationStatus status, Pageable pageable);
-
-    Page<ReconciliationLog> findByTypeAndStatusOrderByCreatedAtDesc(
-            ReconciliationType type, ReconciliationStatus status, Pageable pageable);
+    /**
+     * 재처리 이력 목록 조회 — policyId/type/status 전부 선택 필터(null이면 그 조건은 무시).
+     * policyId는 {@code couponIssue.couponPolicy.id}로 조인하므로, couponIssue가 없는 로그
+     * (예: 특정 발급 건에 안 묶이는 REDIS_RECOVER 등)는 policyId를 지정하면 결과에서 빠진다.
+     * 예전에는 policyId 없이 type/status 조합별 파생 메서드 4개를 따로 두고 서비스에서
+     * if/else로 골랐는데, 필터 차원이 하나(policyId) 늘면서 조합이 8가지로 늘어나 하나의
+     * nullable-파라미터 쿼리로 통합했다.
+     */
+    @Query("select rl from ReconciliationLog rl "
+            + "where (:policyId is null or rl.couponIssue.couponPolicy.id = :policyId) "
+            + "and (:type is null or rl.type = :type) "
+            + "and (:status is null or rl.status = :status) "
+            + "order by rl.createdAt desc")
+    Page<ReconciliationLog> search(
+            @Param("policyId") Long policyId,
+            @Param("type") ReconciliationType type,
+            @Param("status") ReconciliationStatus status,
+            Pageable pageable);
 
     /** DLT 소비 컨슈머의 인박스 체크(1차 방어)용. */
     boolean existsByEventKey(String eventKey);
+
+    /** 발급 접수(receiptId) 상태 조회용 — receiptId를 eventKey로 쓰는 EVENT_REPUBLISH 건이
+     *  있는지 확인해, "아직 처리 중"과 "재처리가 필요한 실패"를 구분한다. */
+    Optional<ReconciliationLog> findByEventKey(String eventKey);
 }

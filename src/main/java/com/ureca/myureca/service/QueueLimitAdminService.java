@@ -1,6 +1,7 @@
 package com.ureca.myureca.service;
 
 import com.ureca.myureca.dto.request.QueueLimitUpdateRequest;
+import com.ureca.myureca.dto.response.QueueAdminStatusResponse;
 import com.ureca.myureca.dto.response.QueueLimitResponse;
 import com.ureca.myureca.exception.CouponPolicyNotFoundException;
 import com.ureca.myureca.repository.CouponPolicyRepository;
@@ -90,6 +91,23 @@ public class QueueLimitAdminService {
         }
 
         return defaultAdmissionRate;
+    }
+
+    /**
+     * 지금 이 정책 대기열에 몇 명이 대기 중인지 + 현재 적용 중인 처리 속도를 함께 보여준다.
+     * 부하테스트를 걸어놓고 대기열이 실제로 줄어드는지 화면에서 눈으로 확인하기 위한 조회 전용
+     * 엔드포인트다(대기열 ZSET 크기 자체를 세므로 발급 성공 여부와 무관하게 "입장 대기 인원"을 뜻한다).
+     */
+    public QueueAdminStatusResponse getStatus(Long policyId) {
+        couponPolicyRepository.findByIdAndDeletedAtIsNull(policyId)
+                .orElseThrow(() -> new CouponPolicyNotFoundException(policyId));
+
+        Long waitingCount = redisTemplate.opsForZSet().size(RedisKeys.couponQueue(policyId));
+        boolean usingDefaultLimit = redisTemplate.opsForValue().get(RedisKeys.queueLimit(policyId)) == null;
+        int currentLimit = getEffectiveLimit(policyId);
+
+        return new QueueAdminStatusResponse(
+                policyId, waitingCount != null ? waitingCount : 0L, currentLimit, usingDefaultLimit);
     }
 
     /**

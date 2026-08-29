@@ -1,0 +1,90 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #f4f4f5; }
+    .note { border: 1px dashed #a1a1aa; background: #f4f4f5; padding: 8px 12px; font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #52525b; line-height: 1.5; }
+    .note b { display:block; color:#18181b; font-size:12px; margin-bottom:2px; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th { text-align:left; color:#a1a1aa; font-weight:600; font-size:11px; padding:10px 12px; border-bottom:1px solid #e4e4e7; }
+    td { padding:12px; border-bottom:1px solid #f4f4f5; color:#3f3f46; }
+    .badge { display:inline-block; padding:3px 8px; font-size:11px; border-radius:4px; }
+    .badge.pending { background:#e4e4e7; color:#3f3f46; }
+    .badge.fail { background:#18181b; color:#fff; }
+    .tab { font-size:12px; padding:8px 12px; border-radius:6px; color:#71717a; border:1px solid #d4d4d8; }
+    .tab.active { background:#18181b; color:#fff; border-color:#18181b; }
+  </style>
+</helmet>
+<div style="width:960px; min-height:640px; background:#fff; box-sizing:border-box; display:flex; flex-direction:column;">
+  <div class="note" style="border-radius:0;">
+    <b>[관리자] 정합성 복구 / 재처리 관리 화면 (DLT 재처리 포함)</b>
+    API: POST /api/admin/reconciliation/retry, GET /api/admin/reconciliation/logs, POST /api/admin/redis/recover, POST /api/admin/dlt/reprocess
+  </div>
+
+  <div style="padding:24px; display:flex; flex-direction:column; gap:16px;">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <div style="font-size:19px; font-weight:700; color:#18181b;">정합성 복구 · 재처리</div>
+      <button style="padding:10px 16px; font-size:13px; font-weight:600; border-radius:6px; border:1px solid #d4d4d8; background:#fff; color:#52525b;">Redis 완전 복구</button>
+    </div>
+
+    <div style="display:flex; gap:8px;">
+      <div class="tab active">전체</div>
+      <div class="tab">이벤트 재발행 (EVENT_REPUBLISH)</div>
+      <div class="tab">발급 재처리 (ISSUE_REPROCESS)</div>
+      <div class="tab">DLT 재처리 (DLT_REPROCESS)</div>
+      <div class="tab">Redis 복구 (REDIS_RECOVER)</div>
+    </div>
+
+    <div style="border:1px solid #d4d4d8; border-radius:8px; overflow:hidden;">
+      <table>
+        <thead>
+          <tr><th>유형 (type)</th><th>대상 발급 ID</th><th>상태</th><th>재시도 횟수</th><th>실패 사유</th><th></th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>DLT 재처리 (DLT_REPROCESS)</td>
+            <td>#8231044</td>
+            <td><span class="badge fail">실패 (FAILED)</span></td>
+            <td>2</td>
+            <td>Consumer timeout</td>
+            <td style="color:#71717a; font-size:12px;">재처리</td>
+          </tr>
+          <tr>
+            <td>이벤트 재발행 (EVENT_REPUBLISH)</td>
+            <td>#8231099</td>
+            <td><span class="badge pending">대기 (PENDING)</span></td>
+            <td>0</td>
+            <td>-</td>
+            <td style="color:#71717a; font-size:12px;">재처리</td>
+          </tr>
+          <tr>
+            <td>발급 재처리 (ISSUE_REPROCESS)</td>
+            <td>#8231120</td>
+            <td><span class="badge pending">성공 (SUCCESS)</span></td>
+            <td>1</td>
+            <td>-</td>
+            <td style="color:#a1a1aa; font-size:12px;">완료</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="font-size:11px; color:#a1a1aa;">Redis 완전 복구는 되돌릴 수 없는 동작이라 확인 다이얼로그를 거칩니다</div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

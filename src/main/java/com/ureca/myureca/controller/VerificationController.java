@@ -2,6 +2,7 @@ package com.ureca.myureca.controller;
 
 import com.ureca.myureca.domain.verification.VerificationStatus;
 import com.ureca.myureca.dto.response.PageResponse;
+import com.ureca.myureca.dto.response.VerificationMismatchRowResponse;
 import com.ureca.myureca.dto.response.VerificationReportResponse;
 import com.ureca.myureca.service.VerificationService;
 import java.nio.charset.StandardCharsets;
@@ -66,6 +67,18 @@ public class VerificationController {
             return downloadCsv(id);
         }
         return ResponseEntity.ok(verificationService.getVerificationReport(id));
+    }
+
+    /**
+     * CSV를 내려받지 않아도 어떤 불일치가 발견됐는지 화면에서 바로 확인하기 위한 조회 전용
+     * 엔드포인트 — 리포트가 이미 만들어둔 CSV를 그대로 파싱해서 페이지 단위로 준다.
+     */
+    @GetMapping("/reports/{id}/mismatches")
+    public PageResponse<VerificationMismatchRowResponse> getMismatches(
+            @PathVariable Long id,
+            @PageableDefault(size = 20) Pageable pageable
+    ) {
+        return verificationService.getVerificationReportMismatches(id, pageable);
     }
 
     private ResponseEntity<Resource> downloadCsv(Long id) {

@@ -1,0 +1,65 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #f4f4f5; }
+    .note { border: 1px dashed #a1a1aa; background: #f4f4f5; padding: 8px 12px; font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #52525b; line-height: 1.5; }
+    .note b { display:block; color:#18181b; font-size:12px; margin-bottom:2px; }
+    .badge { display:inline-block; padding: 3px 8px; font-size: 11px; border-radius: 4px; background:#18181b; color:#fff; }
+    .field { display:flex; justify-content:space-between; font-size:13px; padding:12px 0; border-bottom:1px solid #f4f4f5; color:#3f3f46; }
+    .field span:first-child { color:#a1a1aa; }
+    .field:last-child { border-bottom:none; }
+    textarea { width:100%; box-sizing:border-box; border:1px solid #d4d4d8; border-radius:6px; padding:10px; font-size:13px; font-family:inherit; color:#3f3f46; resize:none; }
+  </style>
+</helmet>
+<div style="width:960px; min-height:640px; background:#fff; box-sizing:border-box; display:flex; flex-direction:column;">
+  <div class="note" style="border-radius:0;">
+    <b>[사용자] 쿠폰 상세 / 사용 페이지</b>
+    API: GET /api/coupons/{id}, POST /use, POST /cancel-usage
+  </div>
+
+  <div style="padding:24px; display:flex; flex-direction:column; gap:18px; flex-grow:1;">
+    <div style="font-size:13px; color:#71717a;">&lt; 내 쿠폰함</div>
+
+    <div>
+      <span class="badge">발급됨</span>
+      <div style="font-size:20px; font-weight:700; color:#18181b; margin-top:10px;">여름 시즌 정률 할인 쿠폰</div>
+    </div>
+
+    <div style="display:flex; gap:16px;">
+      <div style="flex:1.2; border:1px solid #d4d4d8; border-radius:8px; padding:4px 18px; align-self:flex-start;">
+        <div class="field"><span>할인 내용</span><span>20% 할인 (최대 5,000원)</span></div>
+        <div class="field"><span>발급 일시</span><span>2026-08-20 12:00:14</span></div>
+        <div class="field"><span>쿠폰 ID</span><span style="font-family:ui-monospace, Menlo, monospace;">#8231044</span></div>
+      </div>
+
+      <div style="flex:1; display:flex; flex-direction:column; gap:14px;">
+        <button style="padding:16px; font-size:15px; font-weight:600; border-radius:6px; border:none; background:#18181b; color:#fff;">사용하기</button>
+
+        <div style="font-size:12px; color:#a1a1aa;">사용 완료 후에는 아래에서 사용취소를 요청할 수 있어요 (비활성 예시)</div>
+
+        <div style="border:1px solid #e4e4e7; border-radius:6px; padding:14px; opacity:0.5;">
+          <div style="font-size:12px; color:#71717a; margin-bottom:8px;">사용취소 사유</div>
+          <textarea rows="2" placeholder="사유를 입력해주세요" disabled></textarea>
+          <button style="width:100%; margin-top:10px; padding:12px; font-size:13px; border-radius:6px; border:1px solid #d4d4d8; background:#fff; color:#a1a1aa;">사용취소</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 import com.ureca.myureca.domain.coupon.CouponPolicy;
 import com.ureca.myureca.domain.coupon.CouponType;
 import com.ureca.myureca.dto.request.QueueLimitUpdateRequest;
+import com.ureca.myureca.dto.response.QueueAdminStatusResponse;
 import com.ureca.myureca.dto.response.QueueLimitResponse;
 import com.ureca.myureca.exception.CouponPolicyNotFoundException;
 import com.ureca.myureca.repository.CouponPolicyRepository;
@@ -22,6 +23,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
@@ -30,6 +32,7 @@ class QueueLimitAdminServiceTest {
     @Mock private StringRedisTemplate redisTemplate;
     @Mock private CouponPolicyRepository couponPolicyRepository;
     @Mock private ValueOperations<String, String> valueOperations;
+    @Mock private ZSetOperations<String, String> zSetOperations;
 
     @InjectMocks
     private QueueLimitAdminService limitAdminService;
@@ -186,5 +189,45 @@ class QueueLimitAdminServiceTest {
         assertThatThrownBy(() -> limitAdminService.updateLimit(new QueueLimitUpdateRequest(POLICY_ID, 50001)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("이하");
+    }
+
+    @Test
+    void 대기열_현황_조회는_ZSET_크기와_현재_적용_Limit을_함께_반환한다() {
+        when(couponPolicyRepository.findByIdAndDeletedAtIsNull(POLICY_ID)).thenReturn(Optional.of(policy));
+        when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
+        when(zSetOperations.size(RedisKeys.couponQueue(POLICY_ID))).thenReturn(1234L);
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.get(RedisKeys.queueLimit(POLICY_ID))).thenReturn("700");
+
+        QueueAdminStatusResponse response = limitAdminService.getStatus(POLICY_ID);
+
+        assertThat(response.policyId()).isEqualTo(POLICY_ID);
+        assertThat(response.waitingCount()).isEqualTo(1234L);
+        assertThat(response.currentLimit()).isEqualTo(700);
+        assertThat(response.usingDefaultLimit()).isFalse();
+    }
+
+    @Test
+    void 정책별_Limit이_없으면_대기열_현황_조회에서_글로벌_기본값을_쓰고_있음을_표시한다() {
+        when(couponPolicyRepository.findByIdAndDeletedAtIsNull(POLICY_ID)).thenReturn(Optional.of(policy));
+        when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
+        when(zSetOperations.size(RedisKeys.couponQueue(POLICY_ID))).thenReturn(null);
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.get(RedisKeys.queueLimit(POLICY_ID))).thenReturn(null);
+        when(valueOperations.get(RedisKeys.queueDefaultLimit())).thenReturn(null);
+
+        QueueAdminStatusResponse response = limitAdminService.getStatus(POLICY_ID);
+
+        assertThat(response.waitingCount()).isEqualTo(0L);
+        assertThat(response.currentLimit()).isEqualTo(300);
+        assertThat(response.usingDefaultLimit()).isTrue();
+    }
+
+    @Test
+    void 존재하지_않는_정책의_대기열_현황을_조회하면_CouponPolicyNotFoundException이_발생한다() {
+        when(couponPolicyRepository.findByIdAndDeletedAtIsNull(999L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> limitAdminService.getStatus(999L))
+                .isInstanceOf(CouponPolicyNotFoundException.class);
     }
 }
