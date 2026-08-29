@@ -70,13 +70,44 @@ class ReconciliationRetryTriggerTest {
     }
 
     @Test
-    void EVENT_REPUBLISH가_아니면_예외가_발생하고_카프카는_호출되지_않는다() {
-        ReconciliationLog target = log(ReconciliationType.ISSUE_REPROCESS, ReconciliationStatus.PENDING, validPayload());
+    void 재발행_가능한_타입이_아니면_예외가_발생하고_카프카는_호출되지_않는다() {
+        // REDIS_RECOVER는 "Redis 완전 유실 복구" 이력이라 재발행할 이벤트가 없다 —
+        // 세 재발행 타입(EVENT_REPUBLISH/DLT_REPROCESS/ISSUE_REPROCESS)에 속하지 않는 유일한 타입.
+        ReconciliationLog target = log(ReconciliationType.REDIS_RECOVER, ReconciliationStatus.PENDING, validPayload());
         when(reconciliationLogRepository.findById(1L)).thenReturn(Optional.of(target));
 
         assertThatThrownBy(() -> trigger.dispatch(1L))
                 .isInstanceOf(ReconciliationTypeNotSupportedException.class);
 
+        verify(kafkaCouponEventProducer, never()).publishCouponIssuedEventForRetry(any());
+    }
+
+    @Test
+    void ISSUE_REPROCESS는_드리프트_payload로_이벤트를_새로_만들어_발행한다() {
+        ReconciliationLog target = log(ReconciliationType.ISSUE_REPROCESS, ReconciliationStatus.PENDING,
+                "{\"policyId\":7,\"userId\":999,\"detectedAt\":\"2026-08-29T10:00:00\"}");
+        when(reconciliationLogRepository.findById(1L)).thenReturn(Optional.of(target));
+        when(kafkaCouponEventProducer.publishCouponIssuedEventForRetry(any()))
+                .thenReturn(new CompletableFuture<SendResult<String, Object>>());
+
+        trigger.dispatch(1L);
+
+        // receiptId는 logId로 고정 — 같은 로그를 두 번 재처리해도 같은 값이라 Consumer 인박스
+        // 체크(coupon_history.request_id UNIQUE)가 1차 방어로 동작한다.
+        // issuedAt은 원본 발급 시각이 아니라 드리프트를 발견한 검증 회차 시각이다.
+        verify(kafkaCouponEventProducer).publishCouponIssuedEventForRetry(
+                new CouponIssuedEvent(7L, 999L, "rcpt_recover_1", LocalDateTime.parse("2026-08-29T10:00:00")));
+    }
+
+    @Test
+    void ISSUE_REPROCESS_payload가_깨져있으면_즉시_FAILED로_확정된다() {
+        ReconciliationLog target = log(ReconciliationType.ISSUE_REPROCESS, ReconciliationStatus.PENDING,
+                "이건 JSON이 아님");
+        when(reconciliationLogRepository.findById(1L)).thenReturn(Optional.of(target));
+
+        ReconciliationLogResponse response = trigger.dispatch(1L);
+
+        assertThat(response.status()).isEqualTo(ReconciliationStatus.FAILED);
         verify(kafkaCouponEventProducer, never()).publishCouponIssuedEventForRetry(any());
     }
 
