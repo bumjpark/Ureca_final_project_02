@@ -50,7 +50,7 @@ class CouponPolicyControllerTest {
                 CouponPolicyResponse responseWithId = new CouponPolicyResponse(
                                 1L, response.title(), response.couponType(), response.discountValue(),
                                 response.totalQuantity(), response.openAt(),
-                                response.closeAt(), response.createdAt(), response.updatedAt());
+                                response.closeAt(), response.status(), response.createdAt(), response.updatedAt());
                 when(couponPolicyService.createCouponPolicy(any(CouponPolicyCreateRequest.class)))
                                 .thenReturn(responseWithId);
 
