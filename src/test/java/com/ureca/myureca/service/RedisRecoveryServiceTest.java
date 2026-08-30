@@ -44,6 +44,8 @@ class RedisRecoveryServiceTest {
     @Mock
     private SetOperations<String, String> setOperations;
     @Mock
+    private org.springframework.data.redis.core.ZSetOperations<String, String> zSetOperations;
+    @Mock
     private KafkaConsumerLagChecker lagChecker;
     @Mock
     private RedisScript<Long> recoveryFinalizeScript;
@@ -176,5 +178,64 @@ class RedisRecoveryServiceTest {
 
         // 스냅샷이 낡은 걸 확인한 뒤이므로 실제 키 교체는 절대 실행하면 안 된다.
         verify(redisTemplate, never()).execute(eq(recoveryFinalizeScript), any(), any());
+    }
+
+    // ─── reconcileReservedDrift(부분 드리프트 정리) ───────────────────────────
+
+    @Test
+    void reserved가_비어있으면_아무것도_하지_않는다() {
+        when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
+        when(zSetOperations.range("coupon:policy:1:reserved", 0, -1)).thenReturn(java.util.Set.of());
+
+        int fixed = service.reconcileReservedDrift(1L);
+
+        assertThat(fixed).isZero();
+        verify(couponIssueRepository, never())
+                .findUserIdsByCouponPolicyIdAndUserIdIn(any(), any());
+        verify(redisTemplate, never())
+                .executePipelined(org.mockito.ArgumentMatchers
+                        .<org.springframework.data.redis.core.RedisCallback<Object>>any());
+    }
+
+    @Test
+    void reserved에_있지만_DB에_아직_없는_진행중인_발급은_건드리지_않는다() {
+        // opsForZSet().range()는 Set<String>을 돌려주고 그 순회 순서는 보장되지 않으므로,
+        // 넘어오는 후보 목록의 순서에 의존하지 않게 any()로 넓게 스텁한다.
+        when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
+        when(zSetOperations.range("coupon:policy:1:reserved", 0, -1))
+                .thenReturn(java.util.Set.of("10", "20"));
+        when(couponIssueRepository.findUserIdsByCouponPolicyIdAndUserIdIn(eq(1L), any()))
+                .thenReturn(List.of());
+
+        int fixed = service.reconcileReservedDrift(1L);
+
+        assertThat(fixed).isZero();
+        verify(redisTemplate, never())
+                .executePipelined(org.mockito.ArgumentMatchers
+                        .<org.springframework.data.redis.core.RedisCallback<Object>>any());
+    }
+
+    @Test
+    void reserved에_있고_DB에도_이미_커밋된_건만_issued로_옮긴다() {
+        when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
+        when(zSetOperations.range("coupon:policy:1:reserved", 0, -1))
+                .thenReturn(java.util.Set.of("10", "20", "30"));
+
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<java.util.Collection<Long>> candidateCaptor =
+                org.mockito.ArgumentCaptor.forClass(java.util.Collection.class);
+        // 10, 20은 DB에 이미 커밋됨(장애 중 confirmRedisState 콜백만 실패) — 30은 아직 진행 중이라 DB에 없음
+        when(couponIssueRepository.findUserIdsByCouponPolicyIdAndUserIdIn(eq(1L), candidateCaptor.capture()))
+                .thenReturn(List.of(10L, 20L));
+        when(redisTemplate.executePipelined(org.mockito.ArgumentMatchers
+                .<org.springframework.data.redis.core.RedisCallback<Object>>any()))
+                .thenReturn(List.of());
+
+        int fixed = service.reconcileReservedDrift(1L);
+
+        assertThat(fixed).isEqualTo(2);
+        assertThat(candidateCaptor.getValue()).containsExactlyInAnyOrder(10L, 20L, 30L);
+        verify(redisTemplate).executePipelined(org.mockito.ArgumentMatchers
+                .<org.springframework.data.redis.core.RedisCallback<Object>>any());
     }
 }

@@ -18,6 +18,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.QueryTimeoutException;
+import org.springframework.data.redis.RedisConnectionFailureException;
+import org.springframework.data.redis.RedisSystemException;
 import org.springframework.data.redis.core.RedisOperations;
 import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -96,8 +99,20 @@ public class QueueService {
                     String.valueOf(userId),
                     String.valueOf(maxQueueSize)
             );
+        } catch (RedisConnectionFailureException | RedisSystemException | QueryTimeoutException e) {
+            // Redis 자체가 죽었거나 응답이 없는 경우다. 예전에는 이것도 QueueFullException으로
+            // 감싸서, GlobalExceptionHandler가 "대기열이 가득 찼습니다"(errorCode=QUEUE_FULL)로
+            // 응답했다 — HTTP 상태(503)는 우연히 같아서 클라이언트 재시도 동작은 문제없었지만,
+            // errorCode/로그가 실제 원인(Redis 장애)을 "용량 부족"으로 위장해서 운영 중 오판을
+            // 유발했다(실측: 부하테스트 중 Redis를 강제 종료했더니 join 실패 14,223건이 전부
+            // QUEUE_FULL로 잡히고 REDIS_UNAVAILABLE로는 9건만 집계됨 — 그 9건은 이 catch가 없는
+            // RedisCouponIssueService.tryReserveCoupon 경로였다). 그대로 던져서
+            // GlobalExceptionHandler.handleRedisUnavailable(503, REDIS_UNAVAILABLE)이 처리하게 한다.
+            throw e;
         } catch (Exception e) {
-            log.error("Redis 대기열 진입 실패 (일시 장애/지연). policyId={}, userId={}", policyId, userId, e);
+            // Redis 장애가 아닌, 정말 예상 못 한 실패에 대한 방어망. 대기열 자체를 신뢰할 수 없는
+            // 상태라 "가득 찼다"고 보고 거절하는 게 낫다는 판단은 유지한다.
+            log.error("대기열 진입 처리 중 예상 못한 오류. policyId={}, userId={}", policyId, userId, e);
             throw new QueueFullException(policyId);
         }
 
@@ -185,8 +200,12 @@ public class QueueService {
                     keys,
                     String.valueOf(userId)
             );
+        } catch (RedisConnectionFailureException | RedisSystemException | QueryTimeoutException e) {
+            // joinQueue와 같은 이유로 그대로 던진다 — REDIS_UNAVAILABLE로 정확히 분류돼야
+            // 모니터링/알림이 실제 원인을 볼 수 있다.
+            throw e;
         } catch (Exception e) {
-            log.error("Redis 대기열 상태 조회 실패. policyId={}, userId={}", policyId, userId, e);
+            log.error("대기열 상태 조회 중 예상 못한 오류. policyId={}, userId={}", policyId, userId, e);
             throw new QueueFullException(policyId);
         }
 

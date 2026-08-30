@@ -1,6 +1,7 @@
 package com.ureca.myureca.repository;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -24,6 +25,15 @@ public interface CouponIssueRepository extends JpaRepository<CouponIssue, Long> 
      // 정합성 검증 배치용
     @Query("select ci.user.id from CouponIssue ci where ci.couponPolicy.id = :policyId")
     List<Long> findUserIdsByCouponPolicyId(@Param("policyId") Long policyId);
+
+    // Redis reserved ZSET 드리프트 정리용(RedisRecoveryService.reconcileReservedDrift) — Redis
+    // reserved에 남은 userId 후보 중 실제로 DB에 이미 커밋된 것만 골라내는 배치 존재 확인.
+    // 정책 전체를 스캔하는 findUserIdsByCouponPolicyId와 달리 candidateUserIds로 좁혀서,
+    // reserved ZSET 크기(보통 0에 가깝고, 장애 중에만 일시적으로 커짐)만큼만 조회한다.
+    @Query("select ci.user.id from CouponIssue ci "
+            + "where ci.couponPolicy.id = :policyId and ci.user.id in :candidateUserIds")
+    List<Long> findUserIdsByCouponPolicyIdAndUserIdIn(
+            @Param("policyId") Long policyId, @Param("candidateUserIds") Collection<Long> candidateUserIds);
 
     // ---- 발급 현황 페이지 — 실시간 그래프/보조 지표용 ----
 
