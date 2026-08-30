@@ -155,4 +155,16 @@ public interface CouponIssueRepository extends JpaRepository<CouponIssue, Long> 
                        @Param("newStatus") IssueStatus newStatus,
                        @Param("usedAt") LocalDateTime usedAt,
                        @Param("now") LocalDateTime now);
+
+    // ---- 배치/스케줄러용 벌크 만료 쿼리 ----
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE CouponIssue ci SET ci.status = 'EXPIRED', ci.updatedAt = :now "
+            + "WHERE ci.couponPolicy.id = :policyId AND ci.status = 'ISSUED'")
+    int bulkExpireByPolicyId(@Param("policyId") Long policyId, @Param("now") LocalDateTime now);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE CouponIssue ci SET ci.status = 'EXPIRED', ci.updatedAt = :now "
+            + "WHERE ci.status = 'ISSUED' AND ci.couponPolicy.id IN "
+            + "(SELECT cp.id FROM CouponPolicy cp WHERE cp.closeAt IS NOT NULL AND cp.closeAt < :now AND cp.deletedAt IS NULL)")
+    int bulkExpireAllExpired(@Param("now") LocalDateTime now);
 }
