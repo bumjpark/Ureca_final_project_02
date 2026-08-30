@@ -70,6 +70,60 @@ public interface CouponIssueRepository extends JpaRepository<CouponIssue, Long> 
     Page<CouponIssue> findByUserIdAndCouponPolicyIdAndStatus(
             Long userId, Long couponPolicyId, IssueStatus status, Pageable pageable);
 
+    // ---- 논리적 만료 상태를 반영한 필터 쿼리 ----
+    // DB의 status 컬럼은 만료 배치가 없으므로 closeAt이 지나도 ISSUED로 남을 수 있다.
+    // isExpiredAt() 판정과 완전히 동일한 기준을 SQL로 표현해, 조회와 DTO 변환이 항상 일치하게 한다.
+
+    // EXPIRED 조회: 물리적으로 EXPIRED인 것 + closeAt이 지난 ISSUED (= 논리적 만료)
+    @Query(value = "SELECT ci FROM CouponIssue ci JOIN FETCH ci.couponPolicy cp "
+            + "WHERE ci.user.id = :userId "
+            + "AND (ci.status = 'EXPIRED' "
+            + "     OR (ci.status = 'ISSUED' AND cp.closeAt IS NOT NULL AND cp.closeAt < :now))",
+           countQuery = "SELECT COUNT(ci) FROM CouponIssue ci JOIN ci.couponPolicy cp "
+            + "WHERE ci.user.id = :userId "
+            + "AND (ci.status = 'EXPIRED' "
+            + "     OR (ci.status = 'ISSUED' AND cp.closeAt IS NOT NULL AND cp.closeAt < :now))")
+    Page<CouponIssue> findByUserIdAndEffectiveStatusExpired(
+            @Param("userId") Long userId, @Param("now") LocalDateTime now, Pageable pageable);
+
+    // ISSUED 조회: status=ISSUED 이고 아직 만료되지 않은 것만
+    @Query(value = "SELECT ci FROM CouponIssue ci JOIN FETCH ci.couponPolicy cp "
+            + "WHERE ci.user.id = :userId "
+            + "AND ci.status = 'ISSUED' "
+            + "AND (cp.closeAt IS NULL OR cp.closeAt >= :now)",
+           countQuery = "SELECT COUNT(ci) FROM CouponIssue ci JOIN ci.couponPolicy cp "
+            + "WHERE ci.user.id = :userId "
+            + "AND ci.status = 'ISSUED' "
+            + "AND (cp.closeAt IS NULL OR cp.closeAt >= :now)")
+    Page<CouponIssue> findByUserIdAndEffectiveStatusIssued(
+            @Param("userId") Long userId, @Param("now") LocalDateTime now, Pageable pageable);
+
+    // 특정 정책 범위 EXPIRED 조회
+    @Query(value = "SELECT ci FROM CouponIssue ci JOIN FETCH ci.couponPolicy cp "
+            + "WHERE ci.user.id = :userId AND cp.id = :policyId "
+            + "AND (ci.status = 'EXPIRED' "
+            + "     OR (ci.status = 'ISSUED' AND cp.closeAt IS NOT NULL AND cp.closeAt < :now))",
+           countQuery = "SELECT COUNT(ci) FROM CouponIssue ci JOIN ci.couponPolicy cp "
+            + "WHERE ci.user.id = :userId AND cp.id = :policyId "
+            + "AND (ci.status = 'EXPIRED' "
+            + "     OR (ci.status = 'ISSUED' AND cp.closeAt IS NOT NULL AND cp.closeAt < :now))")
+    Page<CouponIssue> findByUserIdAndCouponPolicyIdAndEffectiveStatusExpired(
+            @Param("userId") Long userId, @Param("policyId") Long policyId,
+            @Param("now") LocalDateTime now, Pageable pageable);
+
+    // 특정 정책 범위 ISSUED 조회
+    @Query(value = "SELECT ci FROM CouponIssue ci JOIN FETCH ci.couponPolicy cp "
+            + "WHERE ci.user.id = :userId AND cp.id = :policyId "
+            + "AND ci.status = 'ISSUED' "
+            + "AND (cp.closeAt IS NULL OR cp.closeAt >= :now)",
+           countQuery = "SELECT COUNT(ci) FROM CouponIssue ci JOIN ci.couponPolicy cp "
+            + "WHERE ci.user.id = :userId AND cp.id = :policyId "
+            + "AND ci.status = 'ISSUED' "
+            + "AND (cp.closeAt IS NULL OR cp.closeAt >= :now)")
+    Page<CouponIssue> findByUserIdAndCouponPolicyIdAndEffectiveStatusIssued(
+            @Param("userId") Long userId, @Param("policyId") Long policyId,
+            @Param("now") LocalDateTime now, Pageable pageable);
+
     // ---- Redis 재구성(완전 유실 복구, E) 전용 조회 ----
     // 유저 id 목록은 위의 findUserIdsByCouponPolicyId를 그대로 재사용한다
     // (coupon_policy_id, user_id 유니크 제약 덕분에 중복이 애초에 안 생겨서 distinct 불필요).

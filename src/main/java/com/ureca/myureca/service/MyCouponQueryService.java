@@ -51,9 +51,9 @@ public class MyCouponQueryService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserNotFoundException(userId));
 
-        Page<CouponIssue> issues = findIssues(userId, status, couponPolicyId, pageable);
-
         LocalDateTime now = LocalDateTime.now();
+        Page<CouponIssue> issues = findIssues(userId, status, couponPolicyId, pageable, now);
+
         List<MyCouponResponse> coupons = issues.getContent().stream()
                 .map(issue -> MyCouponResponse.from(issue, now))
                 .toList();
@@ -96,15 +96,29 @@ public class MyCouponQueryService {
     }
 
     private Page<CouponIssue> findIssues(Long userId, IssueStatus status,
-                                         Long couponPolicyId, Pageable pageable) {
+                                         Long couponPolicyId, Pageable pageable, LocalDateTime now) {
         if (couponPolicyId == null) {
-            return (status == null)
-                    ? couponIssueRepository.findByUserId(userId, pageable)
-                    : couponIssueRepository.findByUserIdAndStatus(userId, status, pageable);
+            if (status == null) {
+                return couponIssueRepository.findByUserId(userId, pageable);
+            }
+            // EXPIRED, ISSUED 는 DB 물리 상태만으로 판단할 수 없다 — closeAt 도 함께 본다.
+            // USED 는 closeAt 과 무관하므로 기존 단순 쿼리를 그대로 사용한다.
+            return switch (status) {
+                case EXPIRED -> couponIssueRepository.findByUserIdAndEffectiveStatusExpired(userId, now, pageable);
+                case ISSUED  -> couponIssueRepository.findByUserIdAndEffectiveStatusIssued(userId, now, pageable);
+                case USED    -> couponIssueRepository.findByUserIdAndStatus(userId, status, pageable);
+            };
         }
-        return (status == null)
-                ? couponIssueRepository.findByUserIdAndCouponPolicyId(userId, couponPolicyId, pageable)
-                : couponIssueRepository.findByUserIdAndCouponPolicyIdAndStatus(
-                        userId, couponPolicyId, status, pageable);
+        if (status == null) {
+            return couponIssueRepository.findByUserIdAndCouponPolicyId(userId, couponPolicyId, pageable);
+        }
+        return switch (status) {
+            case EXPIRED -> couponIssueRepository.findByUserIdAndCouponPolicyIdAndEffectiveStatusExpired(
+                    userId, couponPolicyId, now, pageable);
+            case ISSUED  -> couponIssueRepository.findByUserIdAndCouponPolicyIdAndEffectiveStatusIssued(
+                    userId, couponPolicyId, now, pageable);
+            case USED    -> couponIssueRepository.findByUserIdAndCouponPolicyIdAndStatus(
+                    userId, couponPolicyId, status, pageable);
+        };
     }
 }
