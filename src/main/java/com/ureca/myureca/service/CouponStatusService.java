@@ -9,6 +9,7 @@ import com.ureca.myureca.exception.CouponPolicyNotFoundException;
 import com.ureca.myureca.repository.CouponIssueRepository;
 import com.ureca.myureca.repository.CouponPolicyRepository;
 import com.ureca.myureca.support.RedisKeys;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
@@ -123,7 +124,25 @@ public class CouponStatusService {
                 .map(e -> new IssuanceTimelinePointResponse(e.getKey(), e.getValue()))
                 .toList();
 
+        // ── 발급 소요 시간 계산 ──────────────────────────────────────
+        // Redis 소요 시간: 첫 issued_at ~ 마지막 issued_at (Redis Lua 성공 시각 기준)
+        Long redisElapsedMs = null;
+        LocalDateTime minIssuedAt = couponIssueRepository.findMinIssuedAtByCouponPolicyId(policyId);
+        // lastIssuedAt은 이미 위에서 조회했다(= maxIssuedAt)
+        if (minIssuedAt != null && lastIssuedAt != null) {
+            redisElapsedMs = Duration.between(minIssuedAt, lastIssuedAt).toMillis();
+        }
+
+        // DB 반영 완료 소요 시간: 첫 issued_at(Redis 발급 시작) ~ 마지막 created_at(DB 마지막 INSERT)
+        // → Kafka 파이프라인 전체 E2E 지연을 포함하므로, Redis만 봤을 때보다 길면 Consumer 처리가 느린 것
+        Long dbElapsedMs = null;
+        LocalDateTime maxCreatedAt = couponIssueRepository.findMaxCreatedAtByCouponPolicyId(policyId);
+        if (minIssuedAt != null && maxCreatedAt != null) {
+            dbElapsedMs = Duration.between(minIssuedAt, maxCreatedAt).toMillis();
+        }
+
         return new CouponIssuanceMetricsResponse(
-                policyId, totalIssuedEver, usedCount, expiredCount, issuedLastSecond, timeline);
+                policyId, totalIssuedEver, usedCount, expiredCount, issuedLastSecond, timeline,
+                redisElapsedMs, dbElapsedMs);
     }
 }

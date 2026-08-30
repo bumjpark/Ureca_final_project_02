@@ -19,7 +19,13 @@ export default function AdminPolicyListPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(0);
-  const q = useQuery({ queryKey: ['admin-policies', page], queryFn: () => listPolicies(page, 10) });
+  // 최근에 만든 정책이 위로 오게 id 내림차순. 서버 페이지네이션이라 화면에서 뒤집으면
+  // 현재 페이지 안에서만 정렬돼 틀리므로, 정렬은 서버에 맡긴다.
+  const SORT = 'id,desc';
+  const q = useQuery({
+    queryKey: ['admin-policies', page, SORT],
+    queryFn: () => listPolicies(page, 10, SORT),
+  });
 
   const remove = async (id) => {
     if (!confirm(`정책 #${id}를 삭제할까요? (오픈 전에만 가능)`)) return;

@@ -1,0 +1,1146 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>대규모 트래픽 선착순 쿠폰 발급 시스템 — 최종 발표</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;600;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #0B0F19;
+            --bg-card: #151D2E;
+            --bg-card-hover: #1C263C;
+            --border-color: #243048;
+            --text-main: #F8FAFC;
+            --text-muted: #94A3B8;
+            --accent-blue: #38BDF8;
+            --accent-green: #34D399;
+            --accent-gold: #FBBF24;
+            --accent-red: #F87171;
+            --accent-purple: #A78BFA;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Top Progress Bar */
+        .progress-bar {
+            height: 4px;
+            background: linear-gradient(90deg, var(--accent-blue), var(--accent-green));
+            width: 0%;
+            transition: width 0.3s ease;
+            z-index: 100;
+        }
+
+        /* Slide Container */
+        .slide-deck {
+            flex: 1;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2.5rem 4rem;
+        }
+
+        .slide {
+            position: absolute;
+            width: 90%;
+            max-width: 1300px;
+            height: 85%;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            padding: 3rem 4rem;
+            display: flex;
+            flex-direction: column;
+            opacity: 0;
+            pointer-events: none;
+            transform: scale(0.96) translateY(20px);
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            overflow-y: auto;
+        }
+
+        .slide.active {
+            opacity: 1;
+            pointer-events: all;
+            transform: scale(1) translateY(0);
+        }
+
+        /* Category Badge */
+        .badge {
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: var(--accent-blue);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 0.5rem;
+        }
+
+        /* Slide Headers */
+        .slide h1 {
+            font-size: 2.2rem;
+            font-weight: 800;
+            color: var(--text-main);
+            margin-bottom: 0.5rem;
+            line-height: 1.2;
+        }
+
+        .slide h2 {
+            font-size: 1.2rem;
+            font-weight: 400;
+            color: var(--text-muted);
+            margin-bottom: 2rem;
+        }
+
+        /* Grid Layouts */
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.5rem;
+            margin-top: 1rem;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1.5rem;
+            margin-top: 1rem;
+        }
+
+        .grid-4 {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1.2rem;
+            margin-top: 1rem;
+        }
+
+        /* Cards */
+        .card {
+            background: rgba(11, 15, 25, 0.6);
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.2s, border-color 0.2s;
+        }
+
+        .card:hover {
+            border-color: var(--accent-blue);
+            transform: translateY(-3px);
+        }
+
+        .card-title {
+            font-size: 1.15rem;
+            font-weight: 700;
+            margin-bottom: 0.8rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .card-body {
+            font-size: 0.95rem;
+            color: var(--text-muted);
+            line-height: 1.6;
+        }
+
+        .card-body ul {
+            list-style: none;
+        }
+
+        .card-body ul li {
+            position: relative;
+            padding-left: 1.2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .card-body ul li::before {
+            content: "•";
+            position: absolute;
+            left: 0;
+            color: var(--accent-blue);
+            font-weight: bold;
+        }
+
+        .metric-card {
+            background: linear-gradient(135deg, rgba(30, 41, 59, 0.7), rgba(15, 23, 42, 0.9));
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 1.5rem;
+            text-align: center;
+        }
+
+        .metric-val {
+            font-size: 2.2rem;
+            font-weight: 900;
+            margin: 0.5rem 0;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .metric-label {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+
+        .metric-sub {
+            font-size: 0.85rem;
+            color: var(--text-main);
+            font-weight: 600;
+        }
+
+        /* Modern Table */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+        }
+
+        th, td {
+            padding: 1rem 1.2rem;
+            text-align: center;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 0.95rem;
+        }
+
+        th {
+            background: rgba(30, 41, 59, 0.9);
+            color: var(--accent-blue);
+            font-weight: 700;
+        }
+
+        tr:nth-child(even) {
+            background: rgba(11, 15, 25, 0.4);
+        }
+
+        tr.highlight {
+            background: rgba(16, 185, 129, 0.15) !important;
+            border: 2px solid var(--accent-green);
+        }
+
+        /* Highlight Boxes */
+        .callout {
+            background: rgba(30, 27, 75, 0.6);
+            border-left: 4px solid var(--accent-purple);
+            border-radius: 8px;
+            padding: 1.2rem 1.5rem;
+            margin-top: 1.5rem;
+            font-size: 1rem;
+            line-height: 1.6;
+            color: #DDD6FE;
+        }
+
+        .callout-success {
+            background: rgba(6, 78, 59, 0.5);
+            border-left: 4px solid var(--accent-green);
+            color: #A7F3D0;
+        }
+
+        /* Navigation Footer */
+        .controls {
+            padding: 1rem 4rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(11, 15, 25, 0.9);
+            border-top: 1px solid var(--border-color);
+        }
+
+        .btn {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+            padding: 0.6rem 1.2rem;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn:hover {
+            background: var(--accent-blue);
+            color: #000;
+            border-color: var(--accent-blue);
+        }
+
+        .slide-counter {
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* Key Highlights */
+        .text-green { color: var(--accent-green); }
+        .text-blue { color: var(--accent-blue); }
+        .text-gold { color: var(--accent-gold); }
+        .text-red { color: var(--accent-red); }
+        .text-purple { color: var(--accent-purple); }
+
+    </style>
+</head>
+<body>
+
+    <div class="progress-bar" id="progressBar"></div>
+
+    <div class="slide-deck">
+
+        <!-- Slide 1: Cover -->
+        <div class="slide active">
+            <div class="badge">LG U+ 유레카 백엔드 종합프로젝트 • 2조 투게더</div>
+            <h1 style="font-size: 2.8rem; margin-top: 1rem; line-height: 1.3;">20,000건의 동시 폭주 속에서<br><span class="text-blue">'0'의 오차</span>를 증명하다</h1>
+            <h2>대규모 트래픽 선착순 쿠폰 발급 시스템 및 300만 건 데이터 정합성 보장 아키텍처</h2>
+            
+            <div class="grid-4" style="margin-top: 2rem;">
+                <div class="metric-card">
+                    <div class="metric-label">동시 가상 유저 (VU)</div>
+                    <div class="metric-val text-green">20,000</div>
+                    <div class="metric-sub">초과 발급 0건 완벽 방어</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">최대 지연시간 (Max)</div>
+                    <div class="metric-val text-blue">43.88 ms</div>
+                    <div class="metric-sub">6.24초 ➜ 140배 단축</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">DB 처리량 최적화</div>
+                    <div class="metric-val text-gold">1,250 TPS</div>
+                    <div class="metric-sub">JDBC Batch 5.5배 향상</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">300만 건 정합성 검증</div>
+                    <div class="metric-val text-purple">6.2 초</div>
+                    <div class="metric-sub">전수 스캔 및 CSV 자동화</div>
+                </div>
+            </div>
+
+            <div style="margin-top: auto; color: var(--text-muted); font-size: 0.95rem;">
+                팀원: 박종범(조장), 이용재, 이헌진, 정문구, 박찬영
+            </div>
+        </div>
+
+        <!-- Slide 2: Problem Definition -->
+        <div class="slide">
+            <div class="badge">Part 1. 문제 정의</div>
+            <h1>선착순 이벤트의 3대 핵심 과제</h1>
+            <h2>대규모 동시 요청 환경에서 마주한 기술적 난제와 비즈니스 요구사항</h2>
+
+            <div class="grid-3">
+                <div class="card">
+                    <div class="card-title text-red">🚨 1. 동시성 제어 (Race Condition)</div>
+                    <div class="card-body">
+                        <ul>
+                            <li><strong>10,000장 재고에 20,000건 동시 인입</strong></li>
+                            <li>두 요청이 동시에 재고를 읽고 차감하는 경합 발생</li>
+                            <li><strong>재고 초과 발급(Over-selling) 0건 절대 보장</strong></li>
+                            <li>NFR-1 최우선 정합성 지표 수호</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title text-gold">🔒 2. 엄격한 1인 1매 제한</div>
+                    <div class="card-body">
+                        <ul>
+                            <li><strong>광클, 새로고침(F5), 멀티 탭, 봇 차단</strong></li>
+                            <li>동일 유저의 동시 다중 요청 무효화</li>
+                            <li>1명의 유저가 여러 장을 가로채는 어뷰징 방지</li>
+                            <li>식별자 기반 초고속 원자적 중복 판정 필요</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title text-blue">🛡️ 3. RDB 커넥션 병목 격리</div>
+                    <div class="card-body">
+                        <ul>
+                            <li><strong>순간 폭주 트래픽의 WAS/DB 전파 차단</strong></li>
+                            <li>HikariCP(커넥션 풀 10~20개) 조기 고갈 방지</li>
+                            <li>스레드 블로킹으로 인한 서버 다운 방지</li>
+                            <li><strong>발급 응답(동기)과 DB 쓰기(비동기)의 분리</strong></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div class="callout">
+                📌 <strong>프로젝트 최우선 지표 (NFR-1)</strong> : 재고 초과 발급 0건 · 이력-재고 불일치 0건 · 실시간 응답 지연 P50 50ms 미만
+            </div>
+        </div>
+
+        <!-- Slide 3: Industry Research & Question -->
+        <div class="slide">
+            <div class="badge">Part 1. 문제 정의 & 가설 설정</div>
+            <h1>현업 시스템 조사와 의문: "왜 Redis + Kafka인가?"</h1>
+            <h2>남들이 쓰는 기술을 맹목적으로 따르지 않고 실측으로 증명하기로 한 이유</h2>
+
+            <div style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem;">
+                <div class="card" style="border-left: 4px solid var(--accent-blue);">
+                    <div class="card-title text-blue">1. 현업 서비스 조사 (배민, 무신사, 인터파크 등)</div>
+                    <div class="card-body">
+                        • 대규모 트래픽 기업들의 공통 아키텍처: <strong>"Redis (인메모리) + Kafka (메시지 큐)"</strong><br>
+                        • 순간 폭주 트래픽을 인메모리에서 걸러내고, DB 저장은 비동기 큐로 완충하는 표준 패턴 확인
+                    </div>
+                </div>
+
+                <div class="card" style="border-left: 4px solid var(--accent-gold);">
+                    <div class="card-title text-gold">2. 팀의 엔지니어링 의문 (Why?)</div>
+                    <div class="card-body">
+                        • <strong>"남들이 쓴다고 무작정 도입하는 것은 엔지니어링이 아니다."</strong><br>
+                        • 왜 Java 락이나 DB 락으로는 안 될까? 단순 Redis 명령어로는 왜 동시성이 터질까?<br>
+                        • Kafka만 도입하면 정말 무조건 빨라지는가? 실제 병목은 어디에 있는가?
+                    </div>
+                </div>
+
+                <div class="card" style="border-left: 4px solid var(--accent-green);">
+                    <div class="card-title text-green">3. 가설과 실측 기반의 8단계 검증 여정</div>
+                    <div class="card-body">
+                        • 가장 원초적인 <strong>순수 Java(락 없음)부터 DB 비관적 락, Redis Lua, Kafka Consumer 최적화</strong>까지<br>
+                        • 각 대안에 20,000건 부하를 직접 걸어 한계를 깨뜨려보고, 수치로 증명하며 최적의 아키텍처를 도출하기로 결정
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 4: 1~3 Test Failure Analysis -->
+        <div class="slide">
+            <div class="badge">Part 2. 단계별 아키텍처 진화</div>
+            <h1>1~3차 테스트: 애플리케이션 제어 & DB 락의 한계</h1>
+            <h2>실제 부하 테스트를 통한 대안 탈락 과정과 실패 분석</h2>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>방식</th>
+                        <th>부하 조건</th>
+                        <th>정합성 결과</th>
+                        <th>핵심 실패 원인</th>
+                        <th>판정</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>순수 Java (락 없음)</strong></td>
+                        <td>20,000건</td>
+                        <td class="text-red">10,054건 발급 (오버셀 54건)</td>
+                        <td>동시성 경합으로 Check-then-Act 원자성 파괴</td>
+                        <td><span class="text-red">탈락 (FAIL)</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>AtomicInteger</strong></td>
+                        <td>20,000건</td>
+                        <td class="text-gold">10,000건 (카운트 정확)</td>
+                        <td>JVM 메모리 종속, 서버 재시작 및 다중화 시 초기화</td>
+                        <td><span class="text-red">탈락 (FAIL)</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>RDB 비관적 락<br>(SELECT FOR UPDATE)</strong></td>
+                        <td>20,000건</td>
+                        <td class="text-gold">10,000건 (카운트 정확)</td>
+                        <td>HikariCP 커넥션 풀 완전 고갈로 타임아웃 및 서버 마비</td>
+                        <td><span class="text-red">탈락 (FAIL)</span></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div class="callout">
+                💡 <strong>핵심 엔지니어링 결론</strong> : 대규모 동시성 환경에서는 RDB 트랜잭션 락을 배제한 인메모리 원자 제어 솔루션이 필수적임.
+            </div>
+        </div>
+
+        <!-- Slide 5: 4~5 Test Redis Lua -->
+        <div class="slide">
+            <div class="badge">Part 2. 단계별 아키텍처 진화</div>
+            <h1>4~5차 테스트: Redis 도입과 Lua Script의 원자성</h1>
+            <h2>Check-then-Act 문제 해결과 분산 락 없는 초고속 동시성 제어</h2>
+
+            <div class="grid-2">
+                <div class="card" style="border-top: 4px solid var(--accent-red);">
+                    <div class="card-title text-red">❌ 단순 Redis DECR의 실패 (4차)</div>
+                    <div class="card-body">
+                        <ul>
+                            <li><code>GET(재고조회)</code> ➜ <code>SISMEMBER(중복체크)</code> ➜ <code>DECR(차감)</code> 분리 호출</li>
+                            <li>명령 사이의 미세한 시간 차로 인해 동시성 침투</li>
+                            <li><strong>실측 결과: 60,000건 요청 시 6,646건 중복 발급 발생</strong></li>
+                            <li>결론: 개별 명령어 호출만으로는 원자성 보장 불가</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="card" style="border-top: 4px solid var(--accent-green);">
+                    <div class="card-title text-green">✅ Redis Lua Script (EVAL) 적용 (5차)</div>
+                    <div class="card-body">
+                        <ul>
+                            <li><code>SCARD</code> + <code>SISMEMBER</code> + <code>SADD</code>를 단일 스크립트로 통합</li>
+                            <li>Redis 싱글스레드에서 단 1회의 트랜잭션으로 원자 실행</li>
+                            <li><strong>별도 분산 락(Redisson) 대기 시간(RTT) 0초 달성</strong></li>
+                            <li><strong>실측 결과: 60,000건 동시 요청 시 초과발급 0건, 877ms 마감</strong></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 6: 6th Test Synchronous DB Bottleneck -->
+        <div class="slide">
+            <div class="badge">Part 2. 단계별 아키텍처 진화</div>
+            <h1>6차 테스트: Redis + 동기 DB 저장의 병목</h1>
+            <h2>Redis는 1ms인데 왜 전체 처리는 12.7초가 걸리는가?</h2>
+
+            <div class="card" style="margin-bottom: 1.5rem;">
+                <div class="card-title text-gold">📊 실측 데이터 비교 (Redis 판정 vs 동기 DB 저장)</div>
+                <div class="card-body" style="font-size: 1.05rem;">
+                    • Redis Lua 판정 시간 : <strong>1 ms 미만 (초고속 승인)</strong><br>
+                    • 전체 소요 시간 : <strong>12,706 ms (12.7초, 심각한 지연)</strong><br>
+                    • 가장 오래 걸린 DB 저장 대기 시간 : <strong>7,413.41 ms</strong>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title text-blue">🔍 병목 원인 분석 & 엔지니어링 결론</div>
+                <div class="card-body">
+                    1. DB 커넥션 풀(HikariCP 10~20개)이 순간적으로 몰리는 2만 건의 동시 쓰기 요청을 감당하지 못함.<br>
+                    2. 서버 스레드가 DB INSERT 완료를 기다리느라 블로킹되어 뒤쪽 요청들이 도미노처럼 큐잉 지연 발생.<br>
+                    3. <strong>핵심 결론: "발급 승인 응답(동기)"과 "DB 영속화(비동기)"는 반드시 아키텍처적으로 분리되어야 함.</strong>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 7: Kafka Pitfall -->
+        <div class="slide">
+            <div class="badge">Part 2. 단계별 아키텍처 진화</div>
+            <h1>Kafka 도입의 함정: 단순 도입 vs 배치 최적화</h1>
+            <h2>Kafka만 얹는다고 빨라지지 않는다 — Consumer 단건 저장의 참사</h2>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>구분</th>
+                        <th>Redis Only (동기 DB)</th>
+                        <th>Redis + Kafka (단건 저장)</th>
+                        <th>결과 방향</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>처리 시간</strong></td>
+                        <td>6,700 ms (2,985건/s)</td>
+                        <td class="text-red">10,858 ms (1,816건/s)</td>
+                        <td class="text-red">❌ 1.6배 성능 악화</td>
+                    </tr>
+                    <tr>
+                        <td><strong>오류 건수</strong></td>
+                        <td>0건</td>
+                        <td class="text-red">283건 오류 발생</td>
+                        <td class="text-red">❌ 컨슈머 처리 지연으로 실패</td>
+                    </tr>
+                    <tr>
+                        <td><strong>원인 분석</strong></td>
+                        <td>DB 커넥션 병목</td>
+                        <td>메시지 1건마다 @Transactional + 단건 INSERT<br>(건별 DB 왕복 및 fsync 병목)</td>
+                        <td>배치 없는 Kafka는 오버헤드만 가중</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div class="callout">
+                💡 <strong>핵심 인사이트</strong> : Kafka 자체는 가속기가 아니다. Kafka의 진짜 존재 가치는 <strong>"DB 쓰기 작업을 일괄(Batch) 처리할 수 있도록 완충해 주는 것"</strong>에 있다.
+            </div>
+        </div>
+
+        <!-- Slide 8: Consumer Optimization -->
+        <div class="slide">
+            <div class="badge">Part 2. 단계별 아키텍처 진화</div>
+            <h1>Kafka Consumer 최적화: SEQUENCE 채번 & JDBC Batch</h1>
+            <h2>DB 쓰기 처리량 5.5배 폭발적 개선 (229 TPS ➜ 1,250 TPS)</h2>
+
+            <div style="display: flex; flex-direction: column; gap: 1rem;">
+                <div class="card">
+                    <div class="card-title text-gold">1. IDENTITY ➜ SEQUENCE 채번 전략 전환 (V7)</div>
+                    <div class="card-body">
+                        MySQL IDENTITY는 ID 조회를 위해 매 save마다 즉시 flush를 강제함 ➜ <strong>SEQUENCE 메모리 사전할당(allocationSize=50)</strong>으로 트랜잭션 종료 시 일괄 flush 달성
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title text-gold">2. JDBC Batch Insert 활성화</div>
+                    <div class="card-body">
+                        <code>rewriteBatchedStatements=true</code> 설정으로 수백 개 개별 INSERT 쿼리를 단 1개의 Multi-Row Bulk INSERT 문으로 압축 전송
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title text-gold">3. 100건 청크 트랜잭션 & Fallback 격리</div>
+                    <div class="card-body">
+                        정상 건은 100건 청크 단위 일괄 처리(<code>processChunk</code>), UNIQUE 위반 발생 청크만 건별(<code>processSingle</code>)로 안전하게 폴백 격리
+                    </div>
+                </div>
+            </div>
+
+            <div class="callout-success" style="margin-top: 1rem;">
+                🚀 <strong>개선 결과</strong> : DB 영속화 시간 43.6초 ➜ <strong>8.0초</strong> (DB 처리량 229 TPS ➜ <strong>1,250 TPS, 5.5배 향상</strong> / 드롭 0건)
+            </div>
+        </div>
+
+        <!-- Slide 9: 2-Set Structure -->
+        <div class="slide">
+            <div class="badge">Part 2. 단계별 아키텍처 진화</div>
+            <h1>2-Set 구조(RESERVED ➜ ISSUED)와 초저지연 응답</h1>
+            <h2>최대 지연 시간 6.24초 ➜ 43.88ms (140배 단축)</h2>
+
+            <div class="card" style="margin-bottom: 1.5rem;">
+                <div class="card-title text-blue">🔄 2단계 상태 머신 & 자가 치유 라이프사이클</div>
+                <div class="card-body" style="font-size: 1rem; line-height: 1.8;">
+                    • <strong>1단계 (임시 예약)</strong> : Lua Script 차감 후 <code>RESERVED</code> ZSET 등록 ➜ <strong>즉시 202 ACCEPTED 응답 (1ms, Fire-and-Forget)</strong><br>
+                    • <strong>2단계 (DB 확정)</strong> : Kafka Consumer가 DB INSERT 완료 후 <code>RESERVED</code> 삭제 ➜ <code>ISSUED</code> SET으로 승격<br>
+                    • <strong>3단계 (안전망)</strong> : <code>ReconciliationScheduler</code>가 60초 초과 미아 예약을 1분마다 감지해 자동 재발행
+                </div>
+            </div>
+
+            <div class="grid-3">
+                <div class="metric-card">
+                    <div class="metric-label">발급 성공 평균 지연</div>
+                    <div class="metric-val text-green">1.09 ms</div>
+                    <div class="metric-sub">5.16ms에서 대폭 단축</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">P95 응답 지연</div>
+                    <div class="metric-val text-green">1.77 ms</div>
+                    <div class="metric-sub">6.66ms에서 안정화</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">최대 지연 시간 (Max)</div>
+                    <div class="metric-val text-blue">43.88 ms</div>
+                    <div class="metric-sub">6.24초 대비 140배 개선</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 10: 6-Stage Evolution Summary -->
+        <div class="slide">
+            <div class="badge">Part 2. 단계별 아키텍처 진화</div>
+            <h1>아키텍처 진화 단계별 벤치마크 총괄 비교</h1>
+            <h2>수치로 입증하는 6단계 점진적 최적화 과정</h2>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>단계</th>
+                        <th>아키텍처 방식</th>
+                        <th>처리 속도 / TPS</th>
+                        <th>정합성 (초과발급)</th>
+                        <th>핵심 평가</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>1단계</td>
+                        <td>순수 Java (락 없음)</td>
+                        <td>41 ms</td>
+                        <td class="text-red">❌ 54건 초과 발급</td>
+                        <td>레이스 컨디션 발생</td>
+                    </tr>
+                    <tr>
+                        <td>2단계</td>
+                        <td>AtomicInteger</td>
+                        <td>42 ms</td>
+                        <td class="text-gold">⚠️ 0건 (단일서버)</td>
+                        <td>서버 재시작 시 데이터 소멸</td>
+                    </tr>
+                    <tr>
+                        <td>3단계</td>
+                        <td>RDB 비관적 락</td>
+                        <td>타임아웃</td>
+                        <td class="text-gold">⚠️ 0건</td>
+                        <td>커넥션 풀 완전 고갈</td>
+                    </tr>
+                    <tr>
+                        <td>4단계</td>
+                        <td>Redis 단순 DECR</td>
+                        <td>3,612 ms</td>
+                        <td class="text-red">❌ 6,646건 중복 발급</td>
+                        <td>Check-then-Act 원자성 파괴</td>
+                    </tr>
+                    <tr>
+                        <td>5단계</td>
+                        <td>Redis Lua + 동기 DB</td>
+                        <td>12,706 ms</td>
+                        <td class="text-green">✅ 0건</td>
+                        <td>DB 커넥션 병목 심각</td>
+                    </tr>
+                    <tr>
+                        <td>6단계</td>
+                        <td>Redis Lua + Kafka (단건)</td>
+                        <td>10,858 ms</td>
+                        <td class="text-red">⚠️ 283건 오류 발생</td>
+                        <td>Consumer 단건 저장 지연</td>
+                    </tr>
+                    <tr class="highlight">
+                        <td><strong>최종</strong></td>
+                        <td><strong>Redis Lua + Kafka Batch + 2-Set</strong></td>
+                        <td><strong>6.0초 (3,358 TPS)<br>Max 43.88ms</strong></td>
+                        <td><strong class="text-green">✅ 0건 (완벽)</strong></td>
+                        <td><strong>초과발급 0건, P50 46ms, 무결성 100%</strong></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Slide 11: Network Drop -->
+        <div class="slide">
+            <div class="badge">Part 3. 실전 트러블슈팅</div>
+            <h1>트래픽 폭주와 네트워크 유실: 대기열 도입의 계기</h1>
+            <h2>로컬 OS 소켓 한계와 Thundering Herd 극복</h2>
+
+            <div class="card" style="margin-top: 1rem;">
+                <div class="card-title text-red">⚠️ 대규모 부하 테스트 중 마주한 네트워크 레벨의 병목</div>
+                <div class="card-body" style="font-size: 1.05rem; line-height: 1.8;">
+                    <strong>1. 소켓 연결 거부 (Connection Refused 29.77% 발생)</strong><br>
+                    • 2만~10만 가상 유저가 0초에 동시 인입되면서 OS의 TCP 소켓 포트(65,535개) 고갈 (TIME_WAIT)<br>
+                    • 서버 비즈니스 로직은 멀쩡하지만 네트워크 진입로에서 패킷이 드롭되는 현상 발생<br><br>
+                    <strong>2. 사용자 새로고침(F5) 연타 및 매크로 봇의 Thundering Herd</strong><br>
+                    • 진입 대기 중인 유저들이 불안감으로 F5를 연타하여 수만 건의 중복 요청이 쏟아짐
+                </div>
+            </div>
+
+            <div class="callout">
+                📢 <strong>아키텍처 설계 원칙의 확장</strong> : "정합성은 Redis Lua Script가 보장하지만, 시스템 입구를 보호하고 유량을 조절하는 <strong>유량 제어(Traffic Control)는 맨 앞단의 대기열</strong>이 담당해야 한다."
+            </div>
+        </div>
+
+        <!-- Slide 12: Queue -->
+        <div class="slide">
+            <div class="badge">Part 3. 실전 트러블슈팅</div>
+            <h1>동적 스케일링 대기열 & SSE 실시간 통보 아키텍처</h1>
+            <h2>ZPOPMIN 원자적 추출 + 파이프라이닝 토큰 발급 + Server-Sent Events 푸시</h2>
+
+            <div style="display: flex; flex-direction: column; gap: 0.9rem;">
+                <div class="card">
+                    <div class="card-title text-blue">1. 대기열 등록 (/queue/join) & 멱등성</div>
+                    <div class="card-body">Redis ZSET(Score=timestamp)에 순번 등록. F5 연타 시에도 ZSCORE로 기존 순번을 멱등하게 유지하여 중복 줄서기 차단</div>
+                </div>
+                <div class="card">
+                    <div class="card-title text-blue">2. 분산 락 기반 입장 스케줄러 & 동적 자동 스케일링</div>
+                    <div class="card-body">1초 주기 <code>QueueAdmissionScheduler</code>가 다중 서버 중 분산 락(SETNX) 획득 후, 대기열 부하에 따라 <code>QueueLimitAdminService</code>로 입장 정원을 자동 스케일링</div>
+                </div>
+                <div class="card">
+                    <div class="card-title text-blue">3. 원자적 추출 & 파이프라이닝 토큰 발급 (ZPOPMIN)</div>
+                    <div class="card-body"><code>Math.min(batchSize, stock)</code> 정밀 슬라이싱 후 <code>ZPOPMIN</code>으로 선두 인원을 원자적 추출하고, Redis Pipelining으로 60초 TTL <code>activeToken</code> 일괄 등록</div>
+                </div>
+                <div class="card">
+                    <div class="card-title text-blue">4. SSE(Server-Sent Events) 실시간 토큰 푸시 & 보안 검증</div>
+                    <div class="card-body">클라이언트 폴링 부하 없이 SSE 스트림으로 <code>activeToken</code>을 실시간 전달 ➜ <code>/issue</code> 요청 시 토큰 소유자(userId) 일치 여부를 원자적으로 소비/검증하여 매크로/우회 100% 차단</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 13: 5 Inversion Defense -->
+        <div class="slide">
+            <div class="badge">Part 3. 실전 트러블슈팅</div>
+            <h1>선착순 공정성 & 5대 역전 시나리오 완벽 방어</h1>
+            <h2>배치 내 미세 역전 허용 vs 경계선 새치기 0% 차단</h2>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>상황 / 시나리오</th>
+                        <th>역전 발생 여부</th>
+                        <th>공정성 및 시스템 영향</th>
+                        <th>적용된 방어 기술 / 원리</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>1. 대기열 줄서기</strong></td>
+                        <td><span class="text-green">❌ 역전 불가 (0%)</span></td>
+                        <td>먼저 도착한 패킷이 무조건 낮은 순번 수령 (100% 공정)</td>
+                        <td>Redis 싱글스레드 + INCR 단조 증가</td>
+                    </tr>
+                    <tr>
+                        <td><strong>2. 동일 배치 내 발급 (300명)</strong></td>
+                        <td><span class="text-gold">⚠️ 미세 역전 허용</span></td>
+                        <td>300명 모두 당첨 확정 그룹이므로 공정성 피해 없음</td>
+                        <td>activeToken 보유자 그룹 동시 처리</td>
+                    </tr>
+                    <tr>
+                        <td><strong>3. 당첨/탈락 경계선 (마지막 10개)</strong></td>
+                        <td><span class="text-green">❌ 절대 불가 (새치기 차단)</span></td>
+                        <td>11등이 10등을 제치고 쿠폰 가로채기 0건 보장</td>
+                        <td><code>Math.min(batch, stock)</code> 정밀 슬라이싱</td>
+                    </tr>
+                    <tr>
+                        <td><strong>4. 60초 타임아웃 만료</strong></td>
+                        <td><span class="text-blue">⭕ 정상 추월 (정책적)</span></td>
+                        <td>잠수 유저 슬롯을 다음 대기자에게 자동 양도</td>
+                        <td>activeToken TTL + EXPIRED 만료 마커</td>
+                    </tr>
+                    <tr>
+                        <td><strong>5. 서버 다중화 (서버 A, B)</strong></td>
+                        <td><span class="text-green">❌ 역전 불가</span></td>
+                        <td>서버 N대 분산 환경에서도 단일 시퀀스 보장</td>
+                        <td>중앙 집중형 Redis ZSET 시퀀스</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Slide 14: 5-Layer Defense -->
+        <div class="slide">
+            <div class="badge">Part 3. 실전 트러블슈팅</div>
+            <h1>시스템 장애 격리 & 5계층 방어 로직</h1>
+            <h2>어느 레이어가 터져도 서비스는 중단되지 않는다</h2>
+
+            <div style="display: flex; flex-direction: column; gap: 0.8rem; margin-top: 1rem;">
+                <div class="card">
+                    <div class="card-title text-blue">1계층: 유입 제어 (API Gateway & Redis ZSET)</div>
+                    <div class="card-body">소켓 폭풍 방어, F5 중복 줄서기 차단, activeToken 우회 차단</div>
+                </div>
+                <div class="card">
+                    <div class="card-title text-red">2계층: 메모리 검증 (Redis Lua & 2-State)</div>
+                    <div class="card-body">0.5ms 만에 400 Fast-Fail, DB 트래픽 99% 차단, 1인 1매 엄격 보장</div>
+                </div>
+                <div class="card">
+                    <div class="card-title text-gold">3계층: 비동기 완충 (Apache Kafka Broker)</div>
+                    <div class="card-body">policyId+userId 파티션 키로 순서 보장, DB 지연 흡수, DLT 격리</div>
+                </div>
+                <div class="card">
+                    <div class="card-title text-purple">4계층: 자가 치유 (ReconciliationScheduler)</div>
+                    <div class="card-body">60초 초과 유실 예약 건 1분 주기 감지 ➜ DB 확인 후 Kafka 자동 재발행</div>
+                </div>
+                <div class="card">
+                    <div class="card-title text-green">5계층: 최종 영속화 (MySQL InnoDB & JPA)</div>
+                    <div class="card-body">복합 유니크 제약(policy_id, user_id) ➜ 중복 메시지 100% 멱등 흡수</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 15: Redis Recovery -->
+        <div class="slide">
+            <div class="badge">Part 3. 실전 트러블슈팅</div>
+            <h1>Redis 완전 유실 장애 복구 & Kafka Lag 안전 방어선</h1>
+            <h2>부하 도중 FLUSHALL(전멸) 발생 시 SSOT(MySQL) 기반 원자적 복원</h2>
+
+            <div class="card" style="margin-top: 1rem;">
+                <div class="card-title text-red">💥 극단적 카오스 테스트: 부하 도중 Redis FLUSHALL 강제 주입 (T = 32s)</div>
+                <div class="card-body" style="font-size: 1.05rem; line-height: 1.8;">
+                    • 장애 상황: 4,557건 발급 완료, Kafka에 4,311건 처리 중, 잔여 재고 5,443건인 시점에 Redis 완전 삭제<br><br>
+                    🛡️ <strong>안전 복구 메커니즘 (RedisRecoveryService)</strong><br>
+                    1. <strong>Kafka Lag 안전 방어선</strong> : 컨슈머 랙(Lag > 0) 존재 시 섣부른 복구 시도를 409 Conflict로 즉시 차단 ➜ 중복 발급 원천 방어<br>
+                    2. <strong>Lag = 0 도달 시 SSOT 복원</strong> : MySQL 실제 저장량(4,557건) 기준으로 잔여 재고(5,443개) 및 발급자 SET <strong>116ms 만에 원자 재구성</strong>
+                </div>
+            </div>
+
+            <div class="callout-success">
+                ✅ <strong>최종 정합성 검증 결과</strong> : DB 발급(4,557) + Redis 잔여(5,443) = <strong>정확히 10,000장 보존 (PASS)</strong>, 중복 0건, 감사 로그 100% 일치
+            </div>
+        </div>
+
+        <!-- Slide 16: 3M Verification Architecture & Decision -->
+        <div class="slide">
+            <div class="badge">Part 4. 300만 건 정합성 검증</div>
+            <h1>300만 건 정합성 검증: 체크섬의 한계와 집합(Set) Diff 아키텍처</h1>
+            <h2>단순 카운트 비교를 넘어선 대규모 데이터 무결성 검증 설계</h2>
+
+            <div class="grid-2">
+                <div class="card" style="border-top: 4px solid var(--accent-red);">
+                    <div class="card-title text-red">❌ XOR 체크섬 방식 검토 및 탈락 사유</div>
+                    <div class="card-body">
+                        <strong>• 초기 검토</strong> : 빠른 집계를 위해 <code>BIT_XOR(user_id)</code> 고려<br><br>
+                        <strong>1. 오류 상쇄 (Collision 위험)</strong><br>
+                        서로 다른 두 이상 건이 우연히 같은 체크섬을 만들어 정상으로 오판<br><br>
+                        <strong>2. 중복 자기소멸 (A ⊕ A = 0)</strong><br>
+                        동일 유저가 중복 발급되면 XOR 특성상 0으로 소멸되어 <strong>중복 감지 불가!</strong><br><br>
+                        ➜ <strong>결론</strong> : 체크섬 대신 100% 신뢰 가능한 <strong>집합(Set) 기반 대조 채택</strong>
+                    </div>
+                </div>
+
+                <div class="card" style="border-top: 4px solid var(--accent-green);">
+                    <div class="card-title text-green">✅ 최종 채택: Set 기반 양방향 Diff & 불변식 엔진</div>
+                    <div class="card-body">
+                        • 커버링 인덱스 기반 DB 발급자 <code>Set&lt;Long&gt;</code> 추출<br>
+                        • Redis 확정 발급자 <code>Set&lt;Long&gt;</code> 인메모리 로드<br>
+                        • <strong>O(N) 양방향 대칭차집합(Diff) 연산</strong> :<br>
+                        &nbsp;&nbsp;- <code>redisOnly</code> 및 <code>dbOnly</code> 유저 목록 정밀 색출<br>
+                        • 300만 건 대용량 스캔 중에도 메모리 1.45GB 안정 유지<br>
+                        • 이상 발생 시 유저 추적용 <strong>CSV 리포트 자동 생성</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 17: 5 Integrity Engines -->
+        <div class="slide">
+            <div class="badge">Part 4. 300만 건 정합성 검증</div>
+            <h1>5대 정합성 검증 엔진 & 자동 CSV 리포팅</h1>
+            <h2>실무 수준의 불일치 원인 추적 시스템 (VerificationAsyncTrigger)</h2>
+
+            <div style="display: flex; flex-direction: column; gap: 0.8rem;">
+                <div class="card">
+                    <div class="card-title text-blue">1. 오버셀 검증</div>
+                    <div class="card-body">DB 발급 수 > 정책 총 수량 초과 여부 검사 (NFR-1 절대 수호)</div>
+                </div>
+                <div class="card">
+                    <div class="card-title text-blue">2. Redis ↔ DB Diff 검증</div>
+                    <div class="card-body">Redis 확정 발급 유저 집합과 DB 발급 유저 집합의 양방향 일치 대조</div>
+                </div>
+                <div class="card">
+                    <div class="card-title text-blue">3. 재고 누수 검증</div>
+                    <div class="card-body">Redis 잔여재고 + DB 발급수 + RESERVED 잔량 = 총 수량 불변식 검증</div>
+                </div>
+                <div class="card">
+                    <div class="card-title text-blue">4. 생애주기 정합성 검증</div>
+                    <div class="card-body">발급(ISSUED) ➜ 사용(USED) ➜ 취소 간 CouponIssue와 History 상태 일치 검증</div>
+                </div>
+                <div class="card">
+                    <div class="card-title text-blue">5. FCFS 선착순 검증</div>
+                    <div class="card-body">대기열 도착 상위 N명 집합과 실제 DB 발급자 집합의 일치 여부 검증</div>
+                </div>
+            </div>
+
+            <div class="callout-success" style="margin-top: 0.8rem;">
+                📊 <strong>자동 리포팅</strong> : 불일치 발견 시 유저 ID, 발생 시각, 원인별 세부 내역을 담은 CSV 파일 자동 생성 및 다운로드 API 제공
+            </div>
+        </div>
+
+        <!-- Slide 18: 3M Verification Benchmark -->
+        <div class="slide">
+            <div class="badge">Part 4. 300만 건 정합성 검증</div>
+            <h1>300만 건 검증 배치 실측 벤치마크</h1>
+            <h2>300만 건 전수 검증 단 6.2초 완료 — OOM 없는 안정적 실행</h2>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>정책 시나리오</th>
+                        <th>검증 판정</th>
+                        <th>감지된 mismatchCount</th>
+                        <th>소요 시간</th>
+                        <th>검증 상세</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>clean-1m</strong></td>
+                        <td><span class="text-green">✅ SUCCESS</span></td>
+                        <td>0건</td>
+                        <td><strong>6.3 초</strong></td>
+                        <td>100만 건 완전 무결점 검증 통과</td>
+                    </tr>
+                    <tr>
+                        <td><strong>mismatch-overissue</strong></td>
+                        <td><span class="text-red">🚨 MISMATCH_FOUND</span></td>
+                        <td>1,300건</td>
+                        <td><strong>6.2 초</strong></td>
+                        <td>사전 주입된 초과발급 데이터 정확히 적발</td>
+                    </tr>
+                    <tr>
+                        <td><strong>lifecycle-anomaly</strong></td>
+                        <td><span class="text-red">🚨 MISMATCH_FOUND</span></td>
+                        <td>1,000건</td>
+                        <td><strong>6.1 초</strong></td>
+                        <td>사전 주입된 이력 누락 데이터 정확히 적발</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div class="card" style="margin-top: 1.5rem;">
+                <div class="card-title text-gold">⚡ 자원 사용량 및 시스템 안정성</div>
+                <div class="card-body">
+                    • 100만 유저 + 300만 발급이력 + 299.9만 감사로그 대상 비동기 인덱스 레인지 스캔<br>
+                    • <strong>Spring Boot 힙 메모리 1.45GB로 안정 유지 (OOM 발생 0% 달성)</strong>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 19: Live Demo -->
+        <div class="slide">
+            <div class="badge">Part 5. 시스템 시연</div>
+            <h1>라이브 시스템 시연 (5분)</h1>
+            <h2>4단계 핵심 플로우 라이브 시연 안내</h2>
+
+            <div style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem;">
+                <div class="card">
+                    <div class="card-title text-green">Step 1. 대기열 & 선착순 발급 (k6 20,000 VU)</div>
+                    <div class="card-body">모바일 뷰 대기 순번 카운트다운 ➜ 발급 성공(202) ➜ 실시간 재고 1만 개 정확 소진 확인</div>
+                </div>
+                <div class="card">
+                    <div class="card-title text-green">Step 2. 관리자 실시간 대시보드 모니터링</div>
+                    <div class="card-body">초당 유입량, Redis 잔여 재고 0, Kafka Consumer 배치 적재 현황 실시간 관측</div>
+                </div>
+                <div class="card">
+                    <div class="card-title text-green">Step 3. 카오스 엔지니어링 (Redis FLUSHALL & 복구)</div>
+                    <div class="card-body">부하 도중 Redis 삭제 ➜ Kafka Lag 감지 복구 차단 ➜ SSOT 원자 복원 시연</div>
+                </div>
+                <div class="card">
+                    <div class="card-title text-green">Step 4. 300만 건 정합성 검증 배치 실행</div>
+                    <div class="card-body">검증 수동 실행 ➜ 6.2초 만에 검증 완료 ➜ 정합성 리포트 및 CSV 다운로드</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 20: Final Summary -->
+        <div class="slide">
+            <div class="badge">Part 6. 결론 & 성과</div>
+            <h1>최종 성과 요약 및 기여도</h1>
+            <h2>이론을 실측으로 증명한 대규모 트래픽 분산 시스템</h2>
+
+            <div class="grid-3" style="margin-top: 1rem;">
+                <div class="card">
+                    <div class="card-title text-blue">🎯 동시성 정합성</div>
+                    <div class="metric-val text-green" style="font-size: 1.8rem;">0건 오버셀</div>
+                    <div class="card-body">20,000건 동시 요청 무결성 100%</div>
+                </div>
+                <div class="card">
+                    <div class="card-title text-blue">⚡ 초저지연 응답</div>
+                    <div class="metric-val text-green" style="font-size: 1.8rem;">43.88 ms</div>
+                    <div class="card-body">2-Set 구조로 6.24초 대비 140배 단축</div>
+                </div>
+                <div class="card">
+                    <div class="card-title text-blue">🚀 DB 쓰기 최적화</div>
+                    <div class="metric-val text-green" style="font-size: 1.8rem;">1,250 TPS</div>
+                    <div class="card-body">SEQUENCE + JDBC Batch 5.5배 개선</div>
+                </div>
+            </div>
+
+            <div class="grid-2" style="margin-top: 1rem;">
+                <div class="card">
+                    <div class="card-title text-blue">🛡️ 장애 자가 치유</div>
+                    <div class="metric-val text-green" style="font-size: 1.8rem;">100% 복원</div>
+                    <div class="card-body">Kafka Lag 방어선 + SSOT 원자 복구</div>
+                </div>
+                <div class="card">
+                    <div class="card-title text-blue">🔍 대용량 신뢰성</div>
+                    <div class="metric-val text-green" style="font-size: 1.8rem;">6.2초 완료</div>
+                    <div class="card-body">300만 건 검증 및 CSV 자동 리포팅</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 21: Engineering Insights -->
+        <div class="slide">
+            <div class="badge">Part 6. 결론 & 성과</div>
+            <h1>엔지니어링 인사이트 & 배운 점</h1>
+            <h2>"수치보다 중요한 것은 문제를 파헤치는 엔지니어링 태도"</h2>
+
+            <div style="display: flex; flex-direction: column; gap: 1.2rem; margin-top: 1rem;">
+                <div class="card">
+                    <div class="card-title text-gold">1. 가설과 실측의 반복</div>
+                    <div class="card-body" style="font-size: 1.05rem;">
+                        "Kafka를 쓰면 무조건 빨라질 것이다"라는 환상을 버리고, 실측을 통해 Consumer 단건 저장 병목을 찾아내어 Batch로 개선함.
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-title text-gold">2. 정합성과 유량 제어의 명확한 분리</div>
+                    <div class="card-body" style="font-size: 1.05rem;">
+                        "무엇이 맞는 답인가(Lua 원자성)"와 "얼마나 흘려보낼 것인가(대기열 동시성 제한)"의 책임을 각 계층에 명확히 분리함.
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-title text-gold">3. 장애를 전제한 분산 아키텍처 설계</div>
+                    <div class="card-body" style="font-size: 1.05rem;">
+                        네트워크 순단과 캐시 유실은 언제든 발생할 수 있으므로, SSOT(단일 진실 공급원)와 자가 치유 스케줄러를 통한 다중 안전망의 필수성을 체득함.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 22: Q&A -->
+        <div class="slide">
+            <div class="badge">Q & A</div>
+            <h1 style="font-size: 2.8rem; margin-top: 1rem;">Q & A</h1>
+            <h2>경청해 주셔서 감사합니다. 질문에 성심성의껏 답변드리겠습니다.</h2>
+
+            <div style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1.5rem;">
+                <div class="card">
+                    <div class="card-title text-blue">Q1. Redis Lua가 싱글스레드인데 트래픽이 10배 늘어나면 병목이 되지 않나요?</div>
+                    <div class="card-body">
+                        <strong>A:</strong> Lua 연산을 O(1)로 단순화하여 1회 0.1ms 미만입니다. 추가 확장 시 재고 키 샤딩(stock_1, stock_2)과 대기열 동시성 제한으로 CPU 포화를 방어합니다.
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-title text-blue">Q2. Redis 발급 후 DB 저장이 영구 실패하면 어떻게 되나요?</div>
+                    <div class="card-body">
+                        <strong>A:</strong> 발급 즉시 RESERVED로 등록되며, DLT 격리와 함께 1분 주기 스케줄러가 60초 초과 미아 건을 DB 확인 후 자동 재발행합니다.
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-title text-blue">Q3. 300만 건 검증이 운영 DB에 부하를 주지 않나요?</div>
+                    <div class="card-body">
+                        <strong>A:</strong> 실무 환경은 Read Replica나 CDC 기반 DW에서 검증하며, 본 시스템은 커버링 인덱스와 청크 단위 비동기 배치로 락 경합을 최소화했습니다.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Navigation Footer -->
+    <div class="controls">
+        <button class="btn" id="prevBtn" onclick="prevSlide()">◀ 이전 (Left Arrow)</button>
+        <div class="slide-counter" id="slideCounter">1 / 22</div>
+        <button class="btn" id="nextBtn" onclick="nextSlide()">다음 (Right Arrow) ▶</button>
+    </div>
+
+    <script>
+        const slides = document.querySelectorAll('.slide');
+        const progressBar = document.getElementById('progressBar');
+        const slideCounter = document.getElementById('slideCounter');
+        let currentSlide = 0;
+        const totalSlides = slides.length;
+
+        function showSlide(index) {
+            slides.forEach((s, idx) => {
+                s.classList.toggle('active', idx === index);
+            });
+            currentSlide = index;
+            progressBar.style.width = `${((currentSlide + 1) / totalSlides) * 100}%`;
+            slideCounter.textContent = `${currentSlide + 1} / ${totalSlides}`;
+        }
+
+        function nextSlide() {
+            if (currentSlide < totalSlides - 1) {
+                showSlide(currentSlide + 1);
+            }
+        }
+
+        function prevSlide() {
+            if (currentSlide > 0) {
+                showSlide(currentSlide - 1);
+            }
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'Enter') {
+                nextSlide();
+            } else if (e.key === 'ArrowLeft') {
+                prevSlide();
+            }
+        });
+
+        showSlide(0);
+    </script>
+</body>
+</html>

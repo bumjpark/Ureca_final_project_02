@@ -605,6 +605,15 @@ public class VerificationAsyncTrigger {
                 throw new IllegalStateException(
                         "reportUrl이 reportDir(" + root + ") 밖을 가리킵니다: " + storedReportUrl);
             }
+            // 이름 그대로 "존재하는" 파일만 돌려준다. 예전에는 경로 형식과 디렉터리 이탈만 검사해서,
+            // 파일이 사라진 경우(컨테이너 재빌드로 reports 디렉터리가 날아가는 등) 호출부의
+            // Files.readAllLines()에서 NoSuchFileException이 UncheckedIOException으로 새어나가
+            // 500 INTERNAL_ERROR가 됐다. 준비돼 있던 VerificationReportFileMissingException(410 GONE)을
+            // 제대로 타도록 여기서 걸러낸다.
+            if (!Files.isRegularFile(resolved) || !Files.isReadable(resolved)) {
+                throw new IllegalStateException(
+                        "reportUrl이 가리키는 파일이 없거나 읽을 수 없습니다: " + resolved);
+            }
             return resolved;
         }
     }

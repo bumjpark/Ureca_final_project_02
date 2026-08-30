@@ -1,5 +1,5 @@
 import { Suspense, lazy } from 'react';
-import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useSession } from './lib/session.jsx';
 import { LoadingBlock } from './components/ui.jsx';
 
@@ -119,9 +119,11 @@ function RequireRole({ role, children }) {
 }
 
 export default function App() {
+  // 진입 화면(역할 선택)은 자체 브랜드 패널이 있어서 상단바를 감춘다.
+  const { pathname } = useLocation();
   return (
     <div className="min-h-screen">
-      <TopBar />
+      {pathname !== '/' && <TopBar />}
       <Routes>
         <Route path="/" element={<RoleSelectPage />} />
         <Route path="/select-user" element={<UserSelectPage />} />
