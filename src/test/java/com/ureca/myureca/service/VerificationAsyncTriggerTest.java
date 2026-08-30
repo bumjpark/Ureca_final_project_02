@@ -33,6 +33,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
@@ -118,6 +119,52 @@ class VerificationAsyncTriggerTest {
         org.mockito.Mockito.lenient().when(selfProvider.getObject()).thenReturn(asyncTrigger);
     }
 
+    /**
+     * {@code readRedisIssuedUserIds}가 SMEMBERS 대신 SSCAN 커서로 바뀌면서(2026-08-30, 300만 건
+     * 규모 실측에서 SMEMBERS 타임아웃을 발견해 수정), 테스트도 opsForSet().members() 대신
+     * opsForSet().scan()이 돌려주는 Cursor&lt;String&gt;을 흉내 내야 한다. 실제 구현은 hasNext()/
+     * next()/close()만 쓰므로 그 셋만 값 있게 구현하고 나머지는 이 테스트에서 호출될 일이 없다.
+     */
+    private Cursor<String> cursorOf(Set<String> values) {
+        java.util.Iterator<String> it = values.iterator();
+        return new Cursor<>() {
+            @Override
+            public boolean hasNext() {
+                return it.hasNext();
+            }
+
+            @Override
+            public String next() {
+                return it.next();
+            }
+
+            @Override
+            public void close() {
+                // no-op
+            }
+
+            @Override
+            public CursorId getId() {
+                return CursorId.initial();
+            }
+
+            @Override
+            public long getCursorId() {
+                return 0L;
+            }
+
+            @Override
+            public boolean isClosed() {
+                return false;
+            }
+
+            @Override
+            public long getPosition() {
+                return 0L;
+            }
+        };
+    }
+
     private CouponPolicy policy(long id, int totalQuantity) {
         CouponPolicy policy = new CouponPolicy(
                 "테스트 정책", CouponType.FIXED, 1000, totalQuantity,
@@ -157,7 +204,7 @@ class VerificationAsyncTriggerTest {
         VerificationReport report = pendingReport(policy);
         when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
         when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(100L, 200L, 300L));
-        when(setOperations.members(any())).thenReturn(Set.of("100", "200", "300"));
+        when(setOperations.scan(any(), any())).thenReturn(cursorOf(Set.of("100", "200", "300")));
         when(zSetOperations.size(any())).thenReturn(0L);
         // totalReservedEver(=10000-stock)이 dbIssued(3)+reserved(0)와 같아야 누수 0건 — stock=9997
         when(valueOperations.get(any())).thenReturn("9997");
@@ -177,7 +224,7 @@ class VerificationAsyncTriggerTest {
         VerificationReport report = pendingReport(policy);
         when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
         when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(100L, 200L, 300L));
-        when(setOperations.members(any())).thenReturn(Set.of("100", "200", "300"));
+        when(setOperations.scan(any(), any())).thenReturn(cursorOf(Set.of("100", "200", "300")));
         when(zSetOperations.size(any())).thenReturn(0L);
         when(valueOperations.get(any())).thenReturn("9997");
         // 구간 [1,3] 적재분=0(기본값) < liveN(3) — queue-join-events 컨슈머 미가동 상황을 시뮬레이션
@@ -196,7 +243,7 @@ class VerificationAsyncTriggerTest {
         VerificationReport report = pendingReport(policy);
         when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
         when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(100L, 200L, 300L));
-        when(setOperations.members(any())).thenReturn(Set.of("100", "200", "300"));
+        when(setOperations.scan(any(), any())).thenReturn(cursorOf(Set.of("100", "200", "300")));
         when(zSetOperations.size(any())).thenReturn(0L);
         when(valueOperations.get(any())).thenReturn("9997");
         // (rank<=liveN) 확인
@@ -216,7 +263,7 @@ class VerificationAsyncTriggerTest {
         when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
         // DB 발급자는 100,200,999 인데
         when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(100L, 200L, 999L));
-        when(setOperations.members(any())).thenReturn(Set.of("100", "200", "999"));
+        when(setOperations.scan(any(), any())).thenReturn(cursorOf(Set.of("100", "200", "999")));
         when(zSetOperations.size(any())).thenReturn(0L);
         when(valueOperations.get(any())).thenReturn("9997");
         // 대기열 도착순 상위 3명(liveN=min(3,10000)=3)은 100,200,300 이었다 -> 999는 순번 밖, 300은 도착순인데 못 받음
@@ -231,7 +278,7 @@ class VerificationAsyncTriggerTest {
         assertThat(report.getMismatchCount()).isEqualTo(2); // (300 못받음, 999 잘못받음) 쌍
         verify(mismatchReportWriter).write(eq(1L), any(),
                 eq(new MismatchFindings(Set.of(100L, 200L, 999L), Set.of(100L, 200L, 999L), 0, 0, List.of(),
-                        Set.of(100L, 200L, 300L), Set.of())));
+                        Set.of(100L, 200L, 300L), Set.of(), true)));
     }
 
     @Test
@@ -240,7 +287,7 @@ class VerificationAsyncTriggerTest {
         VerificationReport report = pendingReport(policy);
         when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
         when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(100L, 200L));
-        when(setOperations.members(any())).thenReturn(Set.of("100", "200", "999"));
+        when(setOperations.scan(any(), any())).thenReturn(cursorOf(Set.of("100", "200", "999")));
         when(zSetOperations.size(any())).thenReturn(0L);
         when(valueOperations.get(any())).thenReturn("9998"); // dbIssued(2)+reserved(0) 기준 누수 0건
         Path expectedCsvPath = Path.of("reports", "verification-1.csv");
@@ -253,7 +300,7 @@ class VerificationAsyncTriggerTest {
         assertThat(report.getReportUrl()).isEqualTo(expectedCsvPath.toString());
         verify(mismatchReportWriter).write(
                 eq(1L), any(),
-                eq(new MismatchFindings(Set.of(100L, 200L), Set.of(100L, 200L, 999L), 0, 0, List.of(), Set.of(), Set.of())));
+                eq(new MismatchFindings(Set.of(100L, 200L), Set.of(100L, 200L, 999L), 0, 0, List.of(), Set.of(), Set.of(), false)));
     }
 
     @Test
@@ -262,7 +309,7 @@ class VerificationAsyncTriggerTest {
         VerificationReport report = pendingReport(policy);
         when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
         when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(100L));
-        when(setOperations.members(any())).thenReturn(Set.of("100", "999"));
+        when(setOperations.scan(any(), any())).thenReturn(cursorOf(Set.of("100", "999")));
         when(zSetOperations.size(any())).thenReturn(0L);
         when(valueOperations.get(any())).thenReturn("9999");
         when(mismatchReportWriter.write(any(), any(), any())).thenReturn(Path.of("reports/x.csv"));
@@ -285,7 +332,7 @@ class VerificationAsyncTriggerTest {
         VerificationReport report = pendingReport(policy);
         when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
         when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(100L));
-        when(setOperations.members(any())).thenReturn(Set.of("100", "999"));
+        when(setOperations.scan(any(), any())).thenReturn(cursorOf(Set.of("100", "999")));
         when(zSetOperations.size(any())).thenReturn(0L);
         when(valueOperations.get(any())).thenReturn("9999");
         when(mismatchReportWriter.write(any(), any(), any())).thenReturn(Path.of("reports/x.csv"));
@@ -307,7 +354,7 @@ class VerificationAsyncTriggerTest {
         VerificationReport report = pendingReport(policy);
         when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
         when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(100L));
-        when(setOperations.members(any())).thenReturn(Set.of("100"));
+        when(setOperations.scan(any(), any())).thenReturn(cursorOf(Set.of("100")));
         when(zSetOperations.size(any())).thenReturn(1L); // userId=777이 reserved에 남아있음
         when(valueOperations.get(any())).thenReturn("9998"); // 깎인 2건 = dbIssued(1) + reserved(1) → 누수 0
         when(zSetOperations.rangeByScore(any(), org.mockito.ArgumentMatchers.anyDouble(),
@@ -332,7 +379,7 @@ class VerificationAsyncTriggerTest {
         VerificationReport report = pendingReport(policy);
         when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
         when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(100L));
-        when(setOperations.members(any())).thenReturn(Set.of("100"));
+        when(setOperations.scan(any(), any())).thenReturn(cursorOf(Set.of("100")));
         when(zSetOperations.size(any())).thenReturn(1L); // reserved에 1건 있지만
         when(valueOperations.get(any())).thenReturn("9998");
         // rangeByScore(임계 이전)는 비어있다 = 방금 예약된 정상 건 → setUp의 기본 스텁 그대로
@@ -350,7 +397,7 @@ class VerificationAsyncTriggerTest {
         VerificationReport report = pendingReport(policy);
         when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
         when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(100L));
-        when(setOperations.members(any())).thenReturn(Set.of("100"));
+        when(setOperations.scan(any(), any())).thenReturn(cursorOf(Set.of("100")));
         when(zSetOperations.size(any())).thenReturn(1L);
         when(valueOperations.get(any())).thenReturn("9998");
         // DB에 이미 있는 유저가 reserved에도 남아있는 상태 = 컨슈머가 ZREM만 못 한 것이라
@@ -370,7 +417,7 @@ class VerificationAsyncTriggerTest {
         VerificationReport report = pendingReport(policy);
         when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
         when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(100L, 200L, 300L));
-        when(setOperations.members(any())).thenReturn(Set.of("100", "200"));
+        when(setOperations.scan(any(), any())).thenReturn(cursorOf(Set.of("100", "200")));
         when(zSetOperations.size(any())).thenReturn(0L);
         when(valueOperations.get(any())).thenReturn("9997");
         when(mismatchReportWriter.write(any(), any(), any())).thenReturn(Path.of("reports/x.csv"));
@@ -387,7 +434,7 @@ class VerificationAsyncTriggerTest {
         VerificationReport report = pendingReport(policy);
         when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
         when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(100L));
-        when(setOperations.members(any())).thenReturn(Set.of("100"));
+        when(setOperations.scan(any(), any())).thenReturn(cursorOf(Set.of("100")));
         when(zSetOperations.size(any())).thenReturn(5L);
         when(valueOperations.get(any())).thenReturn("9994"); // dbIssued(1)+reserved(5) 기준 누수 0건
 
@@ -404,7 +451,7 @@ class VerificationAsyncTriggerTest {
         VerificationReport report = pendingReport(policy);
         when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
         when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(100L, 200L, 300L)); // 3명 발급
-        when(setOperations.members(any())).thenReturn(Set.of("100", "200", "300")); // Redis도 3명 — diff는 0
+        when(setOperations.scan(any(), any())).thenReturn(cursorOf(Set.of("100", "200", "300"))); // Redis도 3명 — diff는 0
         when(zSetOperations.size(any())).thenReturn(0L);
         // stock 스텁 안 함(키 없음) -> Check A는 건너뛰고 stockLeakCount=0
         when(mismatchReportWriter.write(any(), any(), any()))
@@ -417,7 +464,7 @@ class VerificationAsyncTriggerTest {
         assertThat(report.getMismatchCount()).isEqualTo(1); // 초과분 1건 (누수는 음수라 0건)
         assertThat(report.getReportUrl()).isNotNull();
         verify(mismatchReportWriter).write(eq(1L), any(),
-                eq(new MismatchFindings(Set.of(100L, 200L, 300L), Set.of(100L, 200L, 300L), 1, 0, List.of(), Set.of(), Set.of())));
+                eq(new MismatchFindings(Set.of(100L, 200L, 300L), Set.of(100L, 200L, 300L), 1, 0, List.of(), Set.of(), Set.of(), false)));
     }
 
     @Test
@@ -427,7 +474,7 @@ class VerificationAsyncTriggerTest {
         List<Long> userIds = List.of(1L, 2L, 3L, 4L, 5L, 6L);
         when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
         when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(userIds);
-        when(setOperations.members(any())).thenReturn(Set.of("1", "2", "3", "4", "5", "6")); // diff 없음
+        when(setOperations.scan(any(), any())).thenReturn(cursorOf(Set.of("1", "2", "3", "4", "5", "6"))); // diff 없음
         when(zSetOperations.size(any())).thenReturn(1L); // RESERVED 1건
         // stock 키가 실제로 존재하고 값이 0(진짜 소진) -> totalReservedEver=10, dbIssued(6)+reserved(1)=7 -> leak=3
         when(valueOperations.get(any())).thenReturn("0");
@@ -439,7 +486,7 @@ class VerificationAsyncTriggerTest {
         assertThat(report.getMismatchCount()).isEqualTo(3);
         verify(mismatchReportWriter).write(eq(1L), any(),
                 eq(new MismatchFindings(Set.of(1L, 2L, 3L, 4L, 5L, 6L), Set.of(1L, 2L, 3L, 4L, 5L, 6L), 0, 3,
-                        List.of(), Set.of(), Set.of())));
+                        List.of(), Set.of(), Set.of(), false)));
     }
 
     @Test
@@ -448,7 +495,7 @@ class VerificationAsyncTriggerTest {
         VerificationReport report = pendingReport(policy);
         when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
         when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(100L, 200L, 300L));
-        when(setOperations.members(any())).thenReturn(Set.of("100", "200", "300")); // diff 없음
+        when(setOperations.scan(any(), any())).thenReturn(cursorOf(Set.of("100", "200", "300"))); // diff 없음
         when(zSetOperations.size(any())).thenReturn(0L);
         // stock 스텁 안 함 -> 키 없음 -> Check A 건너뜀
 
@@ -465,7 +512,7 @@ class VerificationAsyncTriggerTest {
         VerificationReport report = pendingReport(policy);
         when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
         when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(100L));
-        when(setOperations.members(any())).thenReturn(Set.of("100"));
+        when(setOperations.scan(any(), any())).thenReturn(cursorOf(Set.of("100")));
         when(zSetOperations.size(any())).thenReturn(0L);
         when(couponIssueRepository.findLifecycleSnapshotsByCouponPolicyId(1L)).thenReturn(
                 List.of(new CouponIssueLifecycleSnapshot(10L, 100L, IssueStatus.USED, LocalDateTime.now())));
@@ -479,7 +526,7 @@ class VerificationAsyncTriggerTest {
         assertThat(report.getMismatchCount()).isEqualTo(1);
         verify(mismatchReportWriter).write(eq(1L), any(),
                 eq(new MismatchFindings(Set.of(100L), Set.of(100L), 0, 0,
-                        List.of(new LifecycleAnomaly(10L, 100L, "HISTORY_MISMATCH")), Set.of(), Set.of())));
+                        List.of(new LifecycleAnomaly(10L, 100L, "HISTORY_MISMATCH")), Set.of(), Set.of(), false)));
     }
 
     @Test
@@ -488,7 +535,7 @@ class VerificationAsyncTriggerTest {
         VerificationReport report = pendingReport(policy);
         when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
         when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(100L));
-        when(setOperations.members(any())).thenReturn(Set.of("100"));
+        when(setOperations.scan(any(), any())).thenReturn(cursorOf(Set.of("100")));
         when(zSetOperations.size(any())).thenReturn(0L);
         when(couponIssueRepository.findLifecycleSnapshotsByCouponPolicyId(1L)).thenReturn(
                 List.of(new CouponIssueLifecycleSnapshot(10L, 100L, IssueStatus.USED, LocalDateTime.now())));
@@ -500,7 +547,7 @@ class VerificationAsyncTriggerTest {
         assertThat(report.getMismatchCount()).isEqualTo(1);
         verify(mismatchReportWriter).write(eq(1L), any(),
                 eq(new MismatchFindings(Set.of(100L), Set.of(100L), 0, 0,
-                        List.of(new LifecycleAnomaly(10L, 100L, "MISSING_HISTORY")), Set.of(), Set.of())));
+                        List.of(new LifecycleAnomaly(10L, 100L, "MISSING_HISTORY")), Set.of(), Set.of(), false)));
     }
 
     @Test
@@ -509,7 +556,7 @@ class VerificationAsyncTriggerTest {
         VerificationReport report = pendingReport(policy);
         when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
         when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(100L));
-        when(setOperations.members(any())).thenReturn(Set.of("100"));
+        when(setOperations.scan(any(), any())).thenReturn(cursorOf(Set.of("100")));
         when(zSetOperations.size(any())).thenReturn(0L);
         when(couponIssueRepository.findLifecycleSnapshotsByCouponPolicyId(1L)).thenReturn(
                 List.of(new CouponIssueLifecycleSnapshot(10L, 100L, IssueStatus.EXPIRED, null)));
@@ -520,7 +567,7 @@ class VerificationAsyncTriggerTest {
         assertThat(report.getMismatchCount()).isEqualTo(1);
         verify(mismatchReportWriter).write(eq(1L), any(),
                 eq(new MismatchFindings(Set.of(100L), Set.of(100L), 0, 0,
-                        List.of(new LifecycleAnomaly(10L, 100L, "MISSING_HISTORY")), Set.of(), Set.of())));
+                        List.of(new LifecycleAnomaly(10L, 100L, "MISSING_HISTORY")), Set.of(), Set.of(), false)));
     }
 
     @Test
@@ -529,7 +576,7 @@ class VerificationAsyncTriggerTest {
         VerificationReport report = pendingReport(policy);
         when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
         when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(100L));
-        when(setOperations.members(any())).thenReturn(Set.of("100"));
+        when(setOperations.scan(any(), any())).thenReturn(cursorOf(Set.of("100")));
         when(zSetOperations.size(any())).thenReturn(0L);
         when(couponIssueRepository.findLifecycleSnapshotsByCouponPolicyId(1L)).thenReturn(
                 List.of(new CouponIssueLifecycleSnapshot(10L, 100L, IssueStatus.ISSUED, null)));
@@ -570,7 +617,7 @@ class VerificationAsyncTriggerTest {
         VerificationReport report = pendingReport(policy);
         when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
         when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(100L));
-        when(setOperations.members(any())).thenReturn(Set.of()); // Redis엔 없음 -> diff 1건 -> CSV 쓰기 시도
+        when(setOperations.scan(any(), any())).thenReturn(cursorOf(Set.of())); // Redis엔 없음 -> diff 1건 -> CSV 쓰기 시도
         when(zSetOperations.size(any())).thenReturn(0L);
         when(mismatchReportWriter.write(any(), any(), any()))
                 .thenThrow(new java.io.UncheckedIOException(
@@ -597,5 +644,64 @@ class VerificationAsyncTriggerTest {
 
         // fail()이 호출됐다면 IllegalStateException이 나서 markFailed 내부에서 로그만 남고 상태는 그대로여야 한다
         assertThat(report.getStatus()).isEqualTo(VerificationStatus.SUCCESS);
+    }
+
+    // ─── detectAndRegisterStaleReserved(Check D 독립 실행, RedisAutoRecoveryScheduler용) ──
+
+    @Test
+    void 미아_예약이_없으면_아무것도_등록하지_않는다() {
+        when(zSetOperations.rangeByScore(eq("coupon:policy:1:reserved"),
+                org.mockito.ArgumentMatchers.anyDouble(), org.mockito.ArgumentMatchers.anyDouble()))
+                .thenReturn(Set.of());
+
+        int found = asyncTrigger.detectAndRegisterStaleReserved(1L);
+
+        assertThat(found).isZero();
+        verify(couponIssueRepository, never()).findUserIdsByCouponPolicyId(any());
+        verify(reconciliationLogRepository, never()).save(any());
+    }
+
+    @Test
+    void reserved에_있어도_DB에_이미_커밋된_건은_미아_예약이_아니다() {
+        // ZREM만 못 한 것뿐(DB_ONLY 드리프트)이지 이벤트 유실이 아니다 — reconcileReservedDrift가
+        // 따로 처리할 대상이라 여기서는 등록하면 안 된다.
+        when(zSetOperations.rangeByScore(eq("coupon:policy:1:reserved"),
+                org.mockito.ArgumentMatchers.anyDouble(), org.mockito.ArgumentMatchers.anyDouble()))
+                .thenReturn(Set.of("10"));
+        when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(10L));
+
+        int found = asyncTrigger.detectAndRegisterStaleReserved(1L);
+
+        assertThat(found).isZero();
+        verify(reconciliationLogRepository, never()).save(any());
+    }
+
+    @Test
+    void DB에도_없이_임계시간_넘긴_reserved는_미아_예약으로_등록한다() {
+        when(zSetOperations.rangeByScore(eq("coupon:policy:1:reserved"),
+                org.mockito.ArgumentMatchers.anyDouble(), org.mockito.ArgumentMatchers.anyDouble()))
+                .thenReturn(Set.of("10", "20"));
+        when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of());
+
+        int found = asyncTrigger.detectAndRegisterStaleReserved(1L);
+
+        assertThat(found).isEqualTo(2);
+        verify(reconciliationLogRepository, org.mockito.Mockito.times(2)).save(any());
+    }
+
+    @Test
+    void 이미_등록된_유저는_다시_등록하지_않는다() {
+        // existsByEventKey=true로 스텁 — 이전 틱에서 이미 등록됐다고 가정.
+        when(zSetOperations.rangeByScore(eq("coupon:policy:1:reserved"),
+                org.mockito.ArgumentMatchers.anyDouble(), org.mockito.ArgumentMatchers.anyDouble()))
+                .thenReturn(Set.of("10"));
+        when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of());
+        when(reconciliationLogRepository.existsByEventKey("verify-reserved-stale:1:10")).thenReturn(true);
+
+        int found = asyncTrigger.detectAndRegisterStaleReserved(1L);
+
+        // 발견 자체는 여전히 1건으로 보고하되(스케줄러 로그용), 실제 저장은 안 한다.
+        assertThat(found).isEqualTo(1);
+        verify(reconciliationLogRepository, never()).save(any());
     }
 }
