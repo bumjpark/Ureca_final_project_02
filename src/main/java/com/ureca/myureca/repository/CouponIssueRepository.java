@@ -156,7 +156,16 @@ public interface CouponIssueRepository extends JpaRepository<CouponIssue, Long> 
                        @Param("usedAt") LocalDateTime usedAt,
                        @Param("now") LocalDateTime now);
 
-    // ---- 배치/스케줄러용 벌크 만료 쿼리 ----
+    // ---- 대용량 청크(Chunk) 분할 만료 쿼리 ----
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = "UPDATE coupon_issue "
+            + "SET status = 'EXPIRED', updated_at = :now "
+            + "WHERE coupon_policy_id = :policyId AND status = 'ISSUED' "
+            + "LIMIT :chunkSize", nativeQuery = true)
+    int bulkExpireChunkByPolicyId(@Param("policyId") Long policyId,
+                                  @Param("now") LocalDateTime now,
+                                  @Param("chunkSize") int chunkSize);
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE CouponIssue ci SET ci.status = 'EXPIRED', ci.updatedAt = :now "
             + "WHERE ci.couponPolicy.id = :policyId AND ci.status = 'ISSUED'")
