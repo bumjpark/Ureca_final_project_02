@@ -16,8 +16,13 @@ export function searchUsers(search, page = 0, size = 20) {
 }
 
 // ── 쿠폰 정책 ────────────────────────────────────────────────
-export const listPolicies = (page = 0, size = 50) =>
-  apiJson(`/api/admin/coupon-policies?page=${page}&size=${size}`);
+// sort는 Spring Pageable 표준 형식("id,desc" 등). 서버가 Pageable을 그대로 받으므로
+// 별도 백엔드 변경 없이 정렬이 적용된다. 안 넘기면 기존처럼 DB 기본 순서(id 오름차순).
+export const listPolicies = (page = 0, size = 50, sort) =>
+  apiJson(
+    `/api/admin/coupon-policies?page=${page}&size=${size}` +
+      (sort ? `&sort=${encodeURIComponent(sort)}` : ''),
+  );
 
 export const getPolicy = (policyId) =>
   apiJson(`/api/admin/coupon-policies/${policyId}`);
