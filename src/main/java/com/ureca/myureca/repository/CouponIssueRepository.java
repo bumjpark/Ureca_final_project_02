@@ -50,6 +50,20 @@ public interface CouponIssueRepository extends JpaRepository<CouponIssue, Long> 
     @Query("select max(ci.issuedAt) from CouponIssue ci where ci.couponPolicy.id = :policyId")
     LocalDateTime findMaxIssuedAtByCouponPolicyId(@Param("policyId") Long policyId);
 
+    // ---- 발급 소요 시간 계산용 ----
+
+    // 최초 발급 시각(issued_at) — Redis Lua 성공 직후 기록된 시각
+    @Query("select min(ci.issuedAt) from CouponIssue ci where ci.couponPolicy.id = :policyId")
+    LocalDateTime findMinIssuedAtByCouponPolicyId(@Param("policyId") Long policyId);
+
+    // 최초 DB 반영 시각(created_at) — Kafka Consumer가 INSERT한 시점
+    @Query("select min(ci.createdAt) from CouponIssue ci where ci.couponPolicy.id = :policyId")
+    LocalDateTime findMinCreatedAtByCouponPolicyId(@Param("policyId") Long policyId);
+
+    // 마지막 DB 반영 시각(created_at) — Kafka Consumer가 마지막 건을 INSERT한 시점
+    @Query("select max(ci.createdAt) from CouponIssue ci where ci.couponPolicy.id = :policyId")
+    LocalDateTime findMaxCreatedAtByCouponPolicyId(@Param("policyId") Long policyId);
+
     // 정합성 검증 배치(Check B: 생명주기 불일치)용 — 지연 연관관계까지 포함한 전체 엔티티를
     // 정책당 최대 수만 건 로드하지 않도록 상태 판단에 필요한 컬럼만 프로젝션한다.
     @Query("select new com.ureca.myureca.repository.CouponIssueLifecycleSnapshot("
