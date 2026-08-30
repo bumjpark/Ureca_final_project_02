@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #f4f4f5; }
+    .note { border: 1px dashed #a1a1aa; background: #f4f4f5; padding: 8px 12px; font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #52525b; line-height: 1.5; }
+    .note b { display:block; color:#18181b; font-size:12px; margin-bottom:2px; }
+    .spinner { width:36px; height:36px; border-radius:50%; border:3px solid #e4e4e7; border-top-color:#18181b; }
+  </style>
+</helmet>
+<div style="width:960px; min-height:640px; background:#fff; box-sizing:border-box; display:flex; flex-direction:column;">
+  <div class="note" style="border-radius:0;">
+    <b>[사용자] 발급 요청 결과 (202 접수증)</b>
+    API: POST /api/coupon-policies/{policyId}/issue
+  </div>
+
+  <div style="padding:24px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:20px; flex-grow:1; text-align:center;">
+    <div class="spinner"></div>
+
+    <div>
+      <div style="font-size:18px; font-weight:700; color:#18181b; margin-bottom:6px;">발급 요청이 접수되었어요</div>
+      <div style="font-size:13px; color:#71717a;">잠시 후 발급이 확정되면 자동으로 알려드릴게요</div>
+    </div>
+
+    <div style="border:1px solid #d4d4d8; border-radius:8px; padding:20px; width:420px; box-sizing:border-box; text-align:left;">
+      <div style="font-size:11px; color:#a1a1aa; margin-bottom:4px;">접수번호 (receipt_id)</div>
+      <div style="font-size:15px; font-weight:600; color:#18181b; font-family:ui-monospace, Menlo, monospace;">rcpt_8f21a9c3</div>
+      <div style="height:1px; background:#f4f4f5; margin:14px 0;"></div>
+      <div style="font-size:11px; color:#a1a1aa; margin-bottom:4px;">상태</div>
+      <div style="font-size:13px; font-weight:600; color:#52525b;">처리중 (RESERVED)</div>
+    </div>
+
+    <div style="font-size:11px; color:#a1a1aa;">이 화면은 5초마다 자동으로 상태를 갱신합니다</div>
+
+    <button style="padding:12px 28px; font-size:14px; border-radius:6px; border:1px solid #d4d4d8; background:#fff; color:#52525b;">내 쿠폰함에서 확인하기</button>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

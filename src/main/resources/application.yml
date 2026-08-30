@@ -85,7 +85,7 @@ coupon:
   queue:
     max-size: ${COUPON_QUEUE_MAX_SIZE:30000}
     token-ttl-seconds: ${COUPON_QUEUE_TOKEN_TTL:60}
-    admission-rate: ${COUPON_QUEUE_ADMISSION_RATE:300}
+    admission-rate: ${COUPON_QUEUE_ADMISSION_RATE:1000}
     admission-interval-ms: ${COUPON_QUEUE_ADMISSION_INTERVAL_MS:1000}
 
 # ---------- Coupon Kafka Consumer Settings ----------

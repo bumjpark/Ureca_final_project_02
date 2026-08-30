@@ -4,6 +4,7 @@ import com.ureca.myureca.domain.coupon.CouponPolicy;
 import com.ureca.myureca.domain.verification.VerificationReport;
 import com.ureca.myureca.domain.verification.VerificationStatus;
 import com.ureca.myureca.dto.response.PageResponse;
+import com.ureca.myureca.dto.response.VerificationMismatchRowResponse;
 import com.ureca.myureca.dto.response.VerificationReportResponse;
 import com.ureca.myureca.exception.CouponPolicyNotFoundException;
 import com.ureca.myureca.exception.VerificationDispatchException;
@@ -14,6 +15,9 @@ import com.ureca.myureca.exception.VerificationReportNotFoundException;
 import com.ureca.myureca.repository.CouponPolicyRepository;
 import com.ureca.myureca.repository.VerificationReportRepository;
 import com.ureca.myureca.support.RedisKeys;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -26,6 +30,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -110,6 +115,57 @@ public class VerificationService {
 
         String filename = "verification-report-%d-%d.csv".formatted(report.getCouponPolicy().getId(), report.getId());
         return new ReportCsvFile(resource, filename);
+    }
+
+    /**
+     * 검증 리포트가 이미 만들어둔 CSV를 그대로 파싱해 화면에서 바로 보여준다(페이지네이션 지원).
+     * CSV를 다운받지 않는 이상 어떤 불일치가 발견됐는지 알 수 없던 문제를 없애기 위한 조회 전용
+     * 엔드포인트 — 별도 저장소 없이 {@link VerificationAsyncTrigger.MismatchReportWriter}가 이미
+     * 써둔 파일을 재사용한다. 불일치 수가 커도 파일 자체는 한 번만 읽고 메모리에서 슬라이싱한다
+     * (CSV용 리포지토리를 새로 두는 것보다 단순하고, 검증 배치가 이미 같은 파일을 순차로 쓰기
+     * 때문에 파일 하나당 크기가 통제된 범위 안에 있다).
+     */
+    @Transactional(readOnly = true)
+    public PageResponse<VerificationMismatchRowResponse> getVerificationReportMismatches(Long id, Pageable pageable) {
+        VerificationReport report = findReportOrThrow(id);
+        String reportUrl = report.getReportUrl();
+        if (reportUrl == null) {
+            throw new VerificationReportCsvNotAvailableException(id, report.getStatus());
+        }
+
+        Path resolved;
+        try {
+            resolved = mismatchReportWriter.resolveExistingFile(reportUrl);
+        } catch (IllegalStateException e) {
+            throw new VerificationReportFileMissingException(id, reportUrl);
+        }
+
+        List<String> lines;
+        try {
+            lines = Files.readAllLines(resolved);
+        } catch (IOException e) {
+            throw new UncheckedIOException("검증 불일치 CSV를 읽을 수 없습니다. reportId=" + id, e);
+        }
+        // 첫 줄은 헤더(policyId,userId,couponIssueId,discrepancyType,detectedAt)라 건너뛴다.
+        List<String> dataLines = lines.size() > 1 ? lines.subList(1, lines.size()) : List.of();
+        List<VerificationMismatchRowResponse> allRows = dataLines.stream()
+                .map(VerificationService::parseMismatchRow)
+                .toList();
+
+        int total = allRows.size();
+        int from = Math.min((int) pageable.getOffset(), total);
+        int to = Math.min(from + pageable.getPageSize(), total);
+        Page<VerificationMismatchRowResponse> page = new PageImpl<>(allRows.subList(from, to), pageable, total);
+        return PageResponse.from(page);
+    }
+
+    private static VerificationMismatchRowResponse parseMismatchRow(String line) {
+        // policyId,userId,couponIssueId,discrepancyType,detectedAt — userId/couponIssueId 칸은
+        // 정책 단위 요약 행(OVERSOLD, STOCK_LEAK)에서 비어있을 수 있다.
+        String[] cols = line.split(",", -1);
+        Long userId = cols[1].isBlank() ? null : Long.valueOf(cols[1]);
+        Long couponIssueId = cols[2].isBlank() ? null : Long.valueOf(cols[2]);
+        return new VerificationMismatchRowResponse(userId, couponIssueId, cols[3], LocalDateTime.parse(cols[4]));
     }
 
     private VerificationReport findReportOrThrow(Long id) {

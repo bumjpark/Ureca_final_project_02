@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #f4f4f5; }
+    .note { border: 1px dashed #a1a1aa; background: #f4f4f5; padding: 8px 12px; font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #52525b; line-height: 1.5; }
+    .note b { display:block; color:#18181b; font-size:12px; margin-bottom:2px; }
+    .role-card { border:1px solid #d4d4d8; border-radius:8px; padding:28px; display:flex; flex-direction:column; gap:8px; }
+    .role-card .label { font-size:17px; font-weight:700; color:#18181b; }
+    .role-card .desc { font-size:13px; color:#71717a; }
+  </style>
+</helmet>
+<div style="width:960px; min-height:640px; background:#fff; box-sizing:border-box; display:flex; flex-direction:column;">
+  <div class="note" style="border-radius:0;">
+    <b>[공통] 역할 선택 (최초 진입 화면)</b>
+    API 없음 · 별도 인증 로직 없이 역할만 선택
+  </div>
+  <div style="padding:24px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:32px; flex-grow:1;">
+    <div style="text-align:center;">
+      <div style="font-size:24px; font-weight:700; color:#18181b;">쿠폰 발급 시스템</div>
+      <div style="font-size:14px; color:#a1a1aa; margin-top:8px;">어떤 화면으로 시작할까요?</div>
+    </div>
+
+    <div style="display:flex; gap:20px;">
+      <div class="role-card" style="width:320px;">
+        <div class="label">사용자로 시작하기</div>
+        <div class="desc">쿠폰을 조회하고 발급받아요</div>
+      </div>
+      <div class="role-card" style="width:320px;">
+        <div class="label">관리자로 시작하기</div>
+        <div class="desc">쿠폰 정책과 발급 현황을 관리해요</div>
+      </div>
+    </div>
+
+    <div style="font-size:12px; color:#a1a1aa;">별도 로그인 없이 역할만 선택하면 바로 이동합니다</div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

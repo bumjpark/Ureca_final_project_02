@@ -1,99 +1,240 @@
 import { Suspense, lazy } from 'react';
-import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
-import { LoadingBlock, ToastProvider } from './components/ui.jsx';
-import DemoBar from './components/DemoBar.jsx';
-import EventPage from './pages/EventPage.jsx';
+import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
+import { useSession } from './lib/session.jsx';
+import { LoadingBlock } from './components/ui.jsx';
+
+import RoleSelectPage from './pages/RoleSelectPage.jsx';
+import UserSelectPage from './pages/UserSelectPage.jsx';
+import EventListPage from './pages/EventListPage.jsx';
+import EventDetailPage from './pages/EventDetailPage.jsx';
+import QueueWaitPage from './pages/QueueWaitPage.jsx';
+import IssueResultPage from './pages/IssueResultPage.jsx';
 import MyCouponsPage from './pages/MyCouponsPage.jsx';
+import CouponUsePage from './pages/CouponUsePage.jsx';
+import CouponHistoryPage from './pages/CouponHistoryPage.jsx';
 
-// 차트(recharts) 무게가 큰 관제 화면은 지연 로드
-const DashboardPage = lazy(() => import('./pages/DashboardPage.jsx'));
-const VerificationPage = lazy(() => import('./pages/VerificationPage.jsx'));
-const PoliciesPage = lazy(() => import('./pages/PoliciesPage.jsx'));
+const AdminPolicyListPage = lazy(() => import('./pages/admin/AdminPolicyListPage.jsx'));
+const AdminPolicyFormPage = lazy(() => import('./pages/admin/AdminPolicyFormPage.jsx'));
+const AdminPolicyWorkspacePage = lazy(() => import('./pages/admin/AdminPolicyWorkspacePage.jsx'));
+const AdminQueueControlPage = lazy(() => import('./pages/admin/AdminQueueControlPage.jsx'));
+const AdminVerificationPage = lazy(() => import('./pages/admin/AdminVerificationPage.jsx'));
+const AdminVerificationReportDetailPage = lazy(() => import('./pages/admin/AdminVerificationReportDetailPage.jsx'));
+const AdminReconciliationPage = lazy(() => import('./pages/admin/AdminReconciliationPage.jsx'));
+const AdminLoadTestPage = lazy(() => import('./pages/admin/AdminLoadTestPage.jsx'));
+const AdminMockNotificationPage = lazy(() => import('./pages/admin/AdminMockNotificationPage.jsx'));
 
-const NAV = [
-  { to: '/event', label: '쿠폰 발급', kind: 'user' },
-  { to: '/my-coupons', label: '내 쿠폰함', kind: 'user' },
-  { to: '/admin/policies', label: '쿠폰 정책', kind: 'admin' },
-  { to: '/admin/dashboard', label: '관제 대시보드', kind: 'admin' },
-  { to: '/admin/verification', label: '정합성 리포트', kind: 'admin' },
+// 정책 단위 작업(대기열/재처리/부하테스트)은 정책 작업 공간(/admin/:policyId) 안의 탭으로
+// 들어가서 최상위 탭에서는 뺐다 — 예전처럼 매번 정책을 다시 고를 필요가 없다. 정합성 검증은
+// "등록된 모든 정책을 한 번에" 돌리는 게 그 자체로 독립된 용도라 최상위 탭에 남겨둔다
+// (정책별로만 보고 싶으면 각 작업 공간의 정합성 검증 탭을 쓰면 됨). 대기열/재처리/부하테스트의
+// 전역 화면도 라우트 자체는 남아있고, 각 탭의 안내 링크로만 연결된다.
+const ADMIN_NAV = [
+  { to: '/admin', label: '정책 관리' },
+  { to: '/admin/verification', label: '전체 정합성 검증' },
+  { to: '/admin/mock-notifications', label: 'Mock 알림' },
 ];
 
-function TopNav() {
+function TopBar() {
+  const { role, userId, reset } = useSession();
+  const navigate = useNavigate();
+
   return (
-    <header className="sticky top-0 z-30 bg-white border-b border-hairline">
-      <div className="mx-auto max-w-[1200px] px-5 h-14 flex items-center gap-6">
-        <span className="font-extrabold text-[17px] tracking-tight">
-          my<span className="text-mint">ureca</span>
-        </span>
-        <nav className="flex items-center gap-1 overflow-x-auto">
-          {NAV.map((n) => (
-            <NavLink
-              key={n.to}
-              to={n.to}
-              className={({ isActive }) =>
-                `whitespace-nowrap px-3 h-9 inline-flex items-center rounded-lg text-[13px] font-bold transition-colors ${
-                  isActive ? 'bg-ink text-white' : 'text-sub hover:text-ink hover:bg-surface'
-                }`
-              }
+    <header className="border-b border-line bg-white">
+      <div className="mx-auto max-w-[1100px] px-6 h-12 flex items-center justify-between">
+        <span className="font-bold text-[15px] text-ink">쿠폰 발급 시스템</span>
+        <div className="flex items-center gap-4 text-xs text-sub">
+          {role === 'user' && userId && <span>사용자 · id {userId}</span>}
+          {role === 'admin' && <span>관리자</span>}
+          {role && (
+            <button
+              className="text-sub hover:text-ink underline underline-offset-2"
+              onClick={() => {
+                reset();
+                navigate('/');
+              }}
             >
-              {n.label}
-            </NavLink>
-          ))}
-        </nav>
+              역할 변경
+            </button>
+          )}
+        </div>
       </div>
     </header>
   );
 }
 
-function UserShell({ children }) {
-  return <main className="mx-auto w-full max-w-[480px] px-5 pb-24 pt-6">{children}</main>;
+function AdminSubNav({ current }) {
+  return (
+    <div className="mx-auto max-w-[1100px] px-6 pt-4">
+      <div className="flex gap-1 border-b border-line">
+        {ADMIN_NAV.map((n) => (
+          <a
+            key={n.to}
+            href={n.to}
+            onClick={(e) => {
+              e.preventDefault();
+              current.navigate(n.to);
+            }}
+            className={`text-[13px] px-4 py-2.5 border-b-2 -mb-px ${
+              current.path === n.to
+                ? 'text-ink font-semibold border-ink'
+                : 'text-sub border-transparent hover:text-ink'
+            }`}
+          >
+            {n.label}
+          </a>
+        ))}
+      </div>
+    </div>
+  );
 }
 
-function AdminShell({ children }) {
-  return <main className="mx-auto w-full max-w-[1200px] px-5 pb-20 pt-6">{children}</main>;
+function UserShell({ children }) {
+  return <main className="mx-auto w-full max-w-[1100px] px-6 py-8">{children}</main>;
+}
+
+function AdminShell({ children, path }) {
+  const navigate = useNavigate();
+  return (
+    <>
+      <AdminSubNav current={{ path, navigate }} />
+      <main className="mx-auto w-full max-w-[1100px] px-6 py-6">{children}</main>
+    </>
+  );
+}
+
+// 예전 링크(북마크 등) 호환용 — 현황 탭으로 흡수된 옛 라우트를 새 워크스페이스로 보낸다.
+function LegacyStatusRedirect() {
+  const { policyId } = useParams();
+  return <Navigate to={`/admin/${policyId}?tab=status`} replace />;
+}
+
+function RequireRole({ role, children }) {
+  const session = useSession();
+  if (!session.role) return <Navigate to="/" replace />;
+  if (role === 'user' && session.role === 'user' && !session.userId) {
+    return <Navigate to="/select-user" replace />;
+  }
+  if (session.role !== role) return <Navigate to="/" replace />;
+  return children;
 }
 
 export default function App() {
   return (
-    <ToastProvider>
-      <TopNav />
-      <DemoBar />
+    <div className="min-h-screen">
+      <TopBar />
       <Routes>
-        <Route path="/" element={<Navigate to="/event" replace />} />
-        <Route path="/event" element={<UserShell><EventPage /></UserShell>} />
-        <Route path="/my-coupons" element={<UserShell><MyCouponsPage /></UserShell>} />
+        <Route path="/" element={<RoleSelectPage />} />
+        <Route path="/select-user" element={<UserSelectPage />} />
+
         <Route
-          path="/admin/policies"
+          path="/events"
           element={
-            <AdminShell>
-              <Suspense fallback={<LoadingBlock label="정책 화면 로딩" />}>
-                <PoliciesPage />
-              </Suspense>
-            </AdminShell>
+            <RequireRole role="user">
+              <UserShell>
+                <EventListPage />
+              </UserShell>
+            </RequireRole>
           }
         />
         <Route
-          path="/admin/dashboard"
+          path="/events/:policyId"
           element={
-            <AdminShell>
-              <Suspense fallback={<LoadingBlock label="대시보드 로딩" />}>
-                <DashboardPage />
-              </Suspense>
-            </AdminShell>
+            <RequireRole role="user">
+              <UserShell>
+                <EventDetailPage />
+              </UserShell>
+            </RequireRole>
           }
         />
         <Route
-          path="/admin/verification"
+          path="/events/:policyId/queue"
           element={
-            <AdminShell>
-              <Suspense fallback={<LoadingBlock label="리포트 로딩" />}>
-                <VerificationPage />
-              </Suspense>
-            </AdminShell>
+            <RequireRole role="user">
+              <UserShell>
+                <QueueWaitPage />
+              </UserShell>
+            </RequireRole>
           }
         />
-        <Route path="*" element={<UserShell><p className="text-sub">없는 화면이에요.</p></UserShell>} />
+        <Route
+          path="/events/:policyId/result"
+          element={
+            <RequireRole role="user">
+              <UserShell>
+                <IssueResultPage />
+              </UserShell>
+            </RequireRole>
+          }
+        />
+        <Route
+          path="/my-coupons"
+          element={
+            <RequireRole role="user">
+              <UserShell>
+                <MyCouponsPage />
+              </UserShell>
+            </RequireRole>
+          }
+        />
+        <Route
+          path="/my-coupons/:couponIssueId"
+          element={
+            <RequireRole role="user">
+              <UserShell>
+                <CouponUsePage />
+              </UserShell>
+            </RequireRole>
+          }
+        />
+        <Route
+          path="/my-coupons/:couponIssueId/history"
+          element={
+            <RequireRole role="user">
+              <UserShell>
+                <CouponHistoryPage />
+              </UserShell>
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="/admin/:policyId/status"
+          element={
+            <RequireRole role="admin">
+              <LegacyStatusRedirect />
+            </RequireRole>
+          }
+        />
+
+        {[
+          ['/admin', AdminPolicyListPage],
+          ['/admin/new', AdminPolicyFormPage],
+          ['/admin/:policyId/edit', AdminPolicyFormPage],
+          ['/admin/:policyId', AdminPolicyWorkspacePage],
+          ['/admin/queue', AdminQueueControlPage],
+          ['/admin/verification', AdminVerificationPage],
+          ['/admin/verification/reports/:reportId', AdminVerificationReportDetailPage],
+          ['/admin/reconciliation', AdminReconciliationPage],
+          ['/admin/load-test', AdminLoadTestPage],
+          ['/admin/mock-notifications', AdminMockNotificationPage],
+        ].map(([path, Comp]) => (
+          <Route
+            key={path}
+            path={path}
+            element={
+              <RequireRole role="admin">
+                <AdminShell path={path}>
+                  <Suspense fallback={<LoadingBlock />}>
+                    <Comp />
+                  </Suspense>
+                </AdminShell>
+              </RequireRole>
+            }
+          />
+        ))}
+
+        <Route path="*" element={<UserShell><p className="text-sm text-sub">없는 화면이에요.</p></UserShell>} />
       </Routes>
-    </ToastProvider>
+    </div>
   );
 }

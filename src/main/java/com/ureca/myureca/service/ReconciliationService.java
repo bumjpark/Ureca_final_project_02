@@ -29,21 +29,12 @@ public class ReconciliationService {
     private final ReconciliationLogRepository reconciliationLogRepository;
     private final ReconciliationRetryTrigger reconciliationRetryTrigger;
 
-    /** 재처리 이력 목록 조회. type/status 둘 다 선택 필터이며, 최신 로그가 먼저 오도록 정렬은 고정한다. */
+    /** 재처리 이력 목록 조회. policyId/type/status 전부 선택 필터이며, 최신 로그가 먼저 오도록 정렬은 고정한다. */
     @Transactional(readOnly = true)
     public PageResponse<ReconciliationLogResponse> getReconciliationLogs(
-            ReconciliationType type, ReconciliationStatus status, Pageable pageable
+            Long policyId, ReconciliationType type, ReconciliationStatus status, Pageable pageable
     ) {
-        Page<ReconciliationLog> page;
-        if (type != null && status != null) {
-            page = reconciliationLogRepository.findByTypeAndStatusOrderByCreatedAtDesc(type, status, pageable);
-        } else if (type != null) {
-            page = reconciliationLogRepository.findByTypeOrderByCreatedAtDesc(type, pageable);
-        } else if (status != null) {
-            page = reconciliationLogRepository.findByStatusOrderByCreatedAtDesc(status, pageable);
-        } else {
-            page = reconciliationLogRepository.findAllByOrderByCreatedAtDesc(pageable);
-        }
+        Page<ReconciliationLog> page = reconciliationLogRepository.search(policyId, type, status, pageable);
         return PageResponse.from(page.map(ReconciliationLogResponse::from));
     }
 
@@ -58,9 +49,13 @@ public class ReconciliationService {
      * 이미 처리된 행들의 retryCount 증가/markFailed까지 같이 롤백돼서, "이미 접수됨"이라고
      * 응답하는 것과 실제 DB 상태가 어긋난다. VerificationService.runVerification()과 동일 이유.
      *
-     * @param type 전체 재처리 대상 타입. EVENT_REPUBLISH 또는 DLT_REPROCESS만 지원한다(다른 타입을
-     *             넘기면 대상이 0건이라 빈 리스트가 반환되거나, dispatch() 단계에서
-     *             ReconciliationTypeNotSupportedException으로 걸러진다).
+     * @param type 전체 재처리 대상 타입. EVENT_REPUBLISH / DLT_REPROCESS / ISSUE_REPROCESS를
+     *             지원한다(그 외 타입을 넘기면 대상이 0건이라 빈 리스트가 반환되거나, dispatch()
+     *             단계에서 ReconciliationTypeNotSupportedException으로 걸러진다).
+     *             <b>ISSUE_REPROCESS를 전체 재처리하면 해당 유저들에게 실제로 쿠폰이 발급된다</b> —
+     *             REDIS_ONLY 드리프트는 "Redis가 맞고 DB가 틀렸다"고 단정할 수 없는 상태라
+     *             (VerificationAsyncTrigger.registerRedisOnlyDrift 주석 참고) 자동 재시도 대상에서
+     *             빠져 있고, 이 일괄 실행도 운영자가 목록을 눈으로 확인한 뒤 쓰는 것을 전제로 한다.
      */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public List<ReconciliationLogResponse> retryAll(ReconciliationType type) {

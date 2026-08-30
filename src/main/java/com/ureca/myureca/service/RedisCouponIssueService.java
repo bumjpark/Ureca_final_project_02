@@ -19,7 +19,8 @@ public class RedisCouponIssueService {
         String stockKey = RedisKeys.couponStock(policyId);
         String reservedKey = RedisKeys.couponReserved(policyId);
         String issuedKey = RedisKeys.couponIssued(policyId);
-        List<String> keys = List.of(stockKey, reservedKey, issuedKey);
+        String pendingKey = RedisKeys.couponPending(policyId);
+        List<String> keys = List.of(stockKey, reservedKey, issuedKey, pendingKey);
         String timestamp = String.valueOf(System.currentTimeMillis());
         Long resultCode = redisTemplate.execute(
                 issueCouponScript,

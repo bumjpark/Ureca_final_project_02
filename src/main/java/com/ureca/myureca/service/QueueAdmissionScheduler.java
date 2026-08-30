@@ -50,6 +50,11 @@ public class QueueAdmissionScheduler {
             Boolean acquired = redisTemplate.opsForValue().setIfAbsent(lockKey, "locked", 1, TimeUnit.SECONDS);
             if (Boolean.TRUE.equals(acquired)) {
                 try {
+                    // 0) 입장 후 임계 시간(토큰 TTL + 여유)을 넘도록 /issue를 안 부른 이탈자를
+                    //    pending에서 걷어낸다 — 이걸 먼저 해야 바로 아래에서 계산하는 admission
+                    //    가용량(재고 - pending)이 이탈자 몫만큼 과소 계산되지 않는다.
+                    queueAdmissionService.reclaimStalePendingAdmissions(policyId);
+
                     // 1) 재고 소진(0 이하)된 정책은 Redis 레벨에서 조기 스킵하여 불필요한 연산 방어.
                     //    여기서 읽은 잔여 재고는 2)의 자동 스케일링 안전 상한 계산에도 그대로 쓴다
                     //    (같은 틱에서 두 번 읽으면 서로 다른 시점의 값이 섞일 수 있다).

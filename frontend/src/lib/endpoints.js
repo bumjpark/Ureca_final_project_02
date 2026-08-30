@@ -1,12 +1,19 @@
 import { api, apiJson, newIdempotencyKey } from './api.js';
 
 /* ────────────────────────────────────────────────────────────
-   백엔드에 실제로 구현된 엔드포인트만 감싼다.
-   (컨트롤러: CouponPolicyAdminController, CouponStatusController,
-    QueueController, CouponIssueController, MyCouponController,
-    CouponDetailController, CouponHistoryController, CouponUseController,
-    VerificationController, ReconciliationController, HealthController)
+   백엔드에 실제로 구현된 엔드포인트만 감싼다. 컨트롤러 소스로 계약을 직접 확인했다:
+   UserController, CouponPolicyController(생성), CouponPolicyAdminController(목록/상세/수정/삭제),
+   CouponStatusController, QueueController, QueueAdminController, CouponIssueController,
+   MyCouponController, CouponDetailController, CouponHistoryController, CouponUseController,
+   VerificationController, ReconciliationController, MockNotificationController,
+   RedisRecoveryController, HealthController.
    ──────────────────────────────────────────────────────────── */
+
+// ── 유저 검색 (100만 건 규모라 검색어 없이는 호출하지 않을 것) ──
+export function searchUsers(search, page = 0, size = 20) {
+  const qs = new URLSearchParams({ search, page: String(page), size: String(size) });
+  return apiJson(`/api/users?${qs.toString()}`);
+}
 
 // ── 쿠폰 정책 ────────────────────────────────────────────────
 export const listPolicies = (page = 0, size = 50) =>
@@ -23,7 +30,7 @@ export const createPolicy = (body) =>
 export const updatePolicy = (policyId, body) =>
   apiJson(`/api/admin/coupon-policies/${policyId}`, { method: 'PATCH', body });
 
-// 정책 삭제(소프트 삭제) — 204. Redis 키 삭제가 선행됨
+// 정책 삭제(소프트 삭제) — 204
 export const deletePolicy = (policyId) =>
   api(`/api/admin/coupon-policies/${policyId}`, { method: 'DELETE' });
 
@@ -31,12 +38,25 @@ export const deletePolicy = (policyId) =>
 export const getCouponStatus = (policyId) =>
   apiJson(`/api/coupon-policies/${policyId}/status`);
 
+// 실시간 발급 그래프(1초 버킷) + 사용/만료 건수, 초당 발급 속도
+export const getCouponIssuanceMetrics = (policyId, seconds = 60) =>
+  apiJson(`/api/coupon-policies/${policyId}/status/metrics?seconds=${seconds}`);
+
 // ── 대기열 ──────────────────────────────────────────────────
 export const joinQueue = (policyId, userId) =>
   apiJson('/api/queue/join', { method: 'POST', body: { policyId, userId } });
 
 export const getQueueStatus = (policyId, userId) =>
   apiJson(`/api/queue/status?policyId=${policyId}&userId=${userId}`);
+
+// 대기열 처리 Limit(초당 통과 정원) 동적 조정 — policyId 없으면 글로벌 기본값
+export const updateQueueLimit = ({ policyId, limit }) =>
+  apiJson('/api/admin/queue/limit', { method: 'PATCH', body: { policyId, limit } });
+
+// 지금 이 정책 대기열에 몇 명이 대기 중인지 + 적용 중인 처리 속도 (부하테스트 중 대기열이
+// 실제로 줄어드는지 확인하는 용도)
+export const getAdminQueueStatus = (policyId) =>
+  apiJson(`/api/admin/queue/status?policyId=${policyId}`);
 
 // ── 발급 (202 Accepted 비동기) ──────────────────────────────
 export async function issueCoupon(policyId, userId, activeToken) {
@@ -47,6 +67,14 @@ export async function issueCoupon(policyId, userId, activeToken) {
   });
   return { ...data, httpStatus: status }; // { status:'ACCEPTED', receiptId, message }
 }
+
+// 202로 받은 접수증(receiptId)의 처리 결과를 조회한다. 발급은 Kafka 비동기라 202 직후에는
+// 아직 DB에 없을 수 있는데, 이 API가 그 상태를 "존재하지 않음"과 구분해서 알려준다.
+//   ISSUED  — DB 반영 완료. coupon에 상세가 들어있다
+//   PENDING — 아직 반영 전(정상적인 비동기 지연일 수 있음). 잠시 후 다시 조회
+//   FAILED  — 발행/소비가 실패해 재처리 대기 중. note에 사유
+export const getIssueStatus = (receiptId) =>
+  apiJson(`/api/coupons/receipt/${encodeURIComponent(receiptId)}`);
 
 // ── 내 쿠폰함 ────────────────────────────────────────────────
 export function getMyCoupons(userId, { status, couponPolicyId, page = 0, size = 100 } = {}) {
@@ -96,19 +124,56 @@ export const getVerificationReport = (id) =>
 export const verificationReportCsvUrl = (id) =>
   `/api/admin/verification/reports/${id}?format=csv`;
 
-// 불일치 상세 CSV 원본 텍스트 (검증 항목별 건수 집계에 사용)
-export async function getVerificationReportCsv(id) {
-  const res = await fetch(verificationReportCsvUrl(id), { headers: { Accept: 'text/csv' } });
-  if (!res.ok) return null;
-  return res.text();
-}
+// CSV를 내려받지 않아도 어떤 불일치가 발견됐는지 화면에서 바로 보기 위한 조회 —
+// 리포트가 만들어둔 CSV를 그대로 파싱해서 페이지 단위로 준다(status가 MISMATCH_FOUND일 때만 호출할 것)
+export const getVerificationMismatches = (reportId, page = 0, size = 20) =>
+  apiJson(`/api/admin/verification/reports/${reportId}/mismatches?page=${page}&size=${size}`);
 
 // ── 정합성 복구(재처리 큐) 로그 ──────────────────────────────
-export function listReconciliationLogs({ type, status, page = 0, size = 20 } = {}) {
+export function listReconciliationLogs({ policyId, type, status, page = 0, size = 20 } = {}) {
   const qs = new URLSearchParams({ page: String(page), size: String(size) });
+  if (policyId != null) qs.set('policyId', String(policyId));
   if (type) qs.set('type', type);
   if (status) qs.set('status', status);
   return apiJson(`/api/admin/reconciliation/logs?${qs.toString()}`);
+}
+
+// 단건 재처리(logId 지정) 또는 전체 재처리(type만 지정, 기본 EVENT_REPUBLISH)
+export function retryReconciliation({ logId, type } = {}) {
+  const qs = new URLSearchParams();
+  if (logId != null) qs.set('logId', String(logId));
+  if (type) qs.set('type', type);
+  return apiJson(`/api/admin/reconciliation/retry?${qs.toString()}`, { method: 'POST' });
+}
+
+// ── Redis 완전 유실 복구 ─────────────────────────────────────
+export const recoverRedis = (eventId) =>
+  apiJson(`/api/coupons/${eventId}/recover`, { method: 'POST' });
+
+// ── Mock 카카오 알림톡 발송 ──────────────────────────────────
+export const sendMockKakao = ({ userId, templateId, message }, simulateFailure = false) =>
+  apiJson(`/api/mock/notifications/kakao?simulateFailure=${simulateFailure}`, {
+    method: 'POST',
+    body: { userId, templateId, message },
+  });
+
+// 정책 수신자 전원에게 일괄 발송 — 즉시 {jobId, policyId, targetCount}만 반환, 실제 발송은
+// 서버가 비동기로 계속한다. 건별 결과는 listMockNotificationLogs, 진행 상태는
+// listMockNotificationBulkJobs로 확인.
+export const sendMockKakaoBulk = ({ policyId, templateId, message }) =>
+  apiJson('/api/mock/notifications/kakao/bulk', { method: 'POST', body: { policyId, templateId, message } });
+
+// 정책별 일괄 발송이 진행 중인지/끝났는지, 대상자 중 몇 명이 끝났는지(성공/실패)를 보여준다.
+export function listMockNotificationBulkJobs({ policyId, page = 0, size = 20 } = {}) {
+  const qs = new URLSearchParams({ page: String(page), size: String(size) });
+  if (policyId != null) qs.set('policyId', String(policyId));
+  return apiJson(`/api/mock/notifications/bulk-jobs?${qs.toString()}`);
+}
+
+export function listMockNotificationLogs({ policyId, page = 0, size = 20 } = {}) {
+  const qs = new URLSearchParams({ page: String(page), size: String(size) });
+  if (policyId != null) qs.set('policyId', String(policyId));
+  return apiJson(`/api/mock/notifications/logs?${qs.toString()}`);
 }
 
 // ── 인프라 헬스체크 (deep = DB/Redis/Kafka 병렬 점검) ─────────

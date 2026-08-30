@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App.jsx';
-import { DemoProvider } from './lib/demo.jsx';
+import { SessionProvider } from './lib/session.jsx';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -11,7 +11,6 @@ const queryClient = new QueryClient({
     queries: {
       retry: 1,
       refetchOnWindowFocus: false,
-      staleTime: 0,
     },
   },
 });
@@ -19,11 +18,11 @@ const queryClient = new QueryClient({
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <DemoProvider>
+      <SessionProvider>
+        <BrowserRouter>
           <App />
-        </DemoProvider>
-      </BrowserRouter>
+        </BrowserRouter>
+      </SessionProvider>
     </QueryClientProvider>
   </StrictMode>,
 );

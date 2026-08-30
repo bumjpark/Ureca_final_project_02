@@ -27,7 +27,7 @@ class MismatchReportWriterTest {
     @Test
     void 불일치_내역을_CSV로_정확히_기록한다() throws IOException {
         MismatchFindings findings = new MismatchFindings(
-                Set.of(100L, 300L), Set.of(100L, 999L), 0, 0, List.of(), Set.of(100L, 300L));
+                Set.of(100L, 300L), Set.of(100L, 999L), 0, 0, List.of(), Set.of(100L, 300L), Set.of());
 
         Path csv = writer().write(1L, RUN_AT, findings);
 
@@ -45,7 +45,7 @@ class MismatchReportWriterTest {
     @Test
     void 초과발급이_있으면_OVERSOLD_행을_기록한다() throws IOException {
         MismatchFindings findings = new MismatchFindings(
-                Set.of(100L), Set.of(100L), 50, 0, List.of(), Set.of(100L));
+                Set.of(100L), Set.of(100L), 50, 0, List.of(), Set.of(100L), Set.of());
 
         Path csv = writer().write(1L, RUN_AT, findings);
 
@@ -56,7 +56,7 @@ class MismatchReportWriterTest {
     @Test
     void 재고_누수가_있으면_STOCK_LEAK_행을_기록한다() throws IOException {
         MismatchFindings findings = new MismatchFindings(
-                Set.of(100L), Set.of(100L), 0, 3, List.of(), Set.of(100L));
+                Set.of(100L), Set.of(100L), 0, 3, List.of(), Set.of(100L), Set.of());
 
         Path csv = writer().write(1L, RUN_AT, findings);
 
@@ -71,7 +71,7 @@ class MismatchReportWriterTest {
                 new LifecycleAnomaly(20L, 200L, "MISSING_HISTORY")
         );
         MismatchFindings findings = new MismatchFindings(
-                Set.of(100L, 200L), Set.of(100L, 200L), 0, 0, anomalies, Set.of(100L, 200L));
+                Set.of(100L, 200L), Set.of(100L, 200L), 0, 0, anomalies, Set.of(100L, 200L), Set.of());
 
         Path csv = writer().write(1L, RUN_AT, findings);
 
@@ -85,7 +85,7 @@ class MismatchReportWriterTest {
         // 도착순 상위 N명(expectedTopN)={100,300}인데 실제 DB 발급자(dbUserIds)={100,999}
         // -> 300은 먼저 왔는데 못 받음(EXPECTED_NOT_ISSUED), 999는 순번 밖인데 받음(ISSUED_NOT_EXPECTED)
         MismatchFindings findings = new MismatchFindings(
-                Set.of(100L, 999L), Set.of(100L, 999L), 0, 0, List.of(), Set.of(100L, 300L));
+                Set.of(100L, 999L), Set.of(100L, 999L), 0, 0, List.of(), Set.of(100L, 300L), Set.of());
 
         Path csv = writer().write(1L, RUN_AT, findings);
 

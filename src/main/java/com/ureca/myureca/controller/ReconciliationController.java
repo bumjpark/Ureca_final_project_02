@@ -38,14 +38,15 @@ public class ReconciliationController {
     }
 
     /**
-     * 정합성 복구 - 재처리 이력 조회. type/status는 둘 다 선택 필터.
+     * 정합성 복구 - 재처리 이력 조회. policyId/type/status 전부 선택 필터.
      */
     @GetMapping("/logs")
     public PageResponse<ReconciliationLogResponse> getLogs(
+            @RequestParam(required = false) Long policyId,
             @RequestParam(required = false) ReconciliationType type,
             @RequestParam(required = false) ReconciliationStatus status,
             @PageableDefault(size = 10) Pageable pageable
     ) {
-        return reconciliationService.getReconciliationLogs(type, status, pageable);
+        return reconciliationService.getReconciliationLogs(policyId, type, status, pageable);
     }
 }

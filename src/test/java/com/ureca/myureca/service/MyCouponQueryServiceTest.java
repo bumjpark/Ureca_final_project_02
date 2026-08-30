@@ -19,6 +19,7 @@ import com.ureca.myureca.exception.CouponIssueNotFoundException;
 import com.ureca.myureca.exception.CouponNotOwnedException;
 import com.ureca.myureca.exception.UserNotFoundException;
 import com.ureca.myureca.repository.CouponIssueRepository;
+import com.ureca.myureca.repository.ReconciliationLogRepository;
 import com.ureca.myureca.repository.UserRepository;
 import java.lang.reflect.Field;
 import java.time.LocalDateTime;
@@ -52,13 +53,16 @@ class MyCouponQueryServiceTest {
     private CouponIssueRepository couponIssueRepository;
     @Mock
     private UserRepository userRepository;
+    @Mock
+    private ReconciliationLogRepository reconciliationLogRepository;
 
     private MyCouponQueryService myCouponQueryService;
     private User owner;
 
     @BeforeEach
     void setUp() throws Exception {
-        myCouponQueryService = new MyCouponQueryService(couponIssueRepository, userRepository);
+        myCouponQueryService =
+                new MyCouponQueryService(couponIssueRepository, userRepository, reconciliationLogRepository);
         owner = new User("pcy9849@gmail.com", "홍길동");
         setField(owner, "id", OWNER_ID);
     }
@@ -151,6 +155,70 @@ class MyCouponQueryServiceTest {
         assertThat(response.displayStatus()).isEqualTo(IssueStatus.USED);
         assertThat(response.usable()).isFalse();
         assertThat(response.usedAt()).isNotNull();
+    }
+
+    // ---------- 발급 접수(receiptId) 상태 조회 ----------
+
+    @DisplayName("DB에 반영되면 ISSUED와 상세를 함께 준다")
+    @Test
+    void 접수상태_ISSUED() throws Exception {
+        CouponIssue issue = issue(IssueStatus.ISSUED, LocalDateTime.now().plusDays(7));
+        when(couponIssueRepository.findByReceiptId(RECEIPT_ID)).thenReturn(Optional.of(issue));
+
+        var response = myCouponQueryService.getIssueStatusByReceiptId(RECEIPT_ID);
+
+        assertThat(response.status())
+                .isEqualTo(com.ureca.myureca.dto.response.CouponIssueStatusResponse.Status.ISSUED);
+        assertThat(response.coupon()).isNotNull();
+        assertThat(response.coupon().receiptId()).isEqualTo(RECEIPT_ID);
+    }
+
+    @DisplayName("DB에도 재처리 로그에도 없으면 PENDING(정상적인 비동기 처리 중일 수 있음)이다")
+    @Test
+    void 접수상태_PENDING_아직_아무_흔적도_없음() {
+        when(couponIssueRepository.findByReceiptId(RECEIPT_ID)).thenReturn(Optional.empty());
+        when(reconciliationLogRepository.findByEventKey(RECEIPT_ID)).thenReturn(Optional.empty());
+
+        var response = myCouponQueryService.getIssueStatusByReceiptId(RECEIPT_ID);
+
+        assertThat(response.status())
+                .isEqualTo(com.ureca.myureca.dto.response.CouponIssueStatusResponse.Status.PENDING);
+        assertThat(response.coupon()).isNull();
+    }
+
+    @DisplayName("재처리 로그가 PENDING/FAILED로 남아있으면 FAILED(재처리 중임을 알림)다")
+    @Test
+    void 접수상태_FAILED_재처리_로그가_미해결() {
+        com.ureca.myureca.domain.reconciliation.ReconciliationLog log =
+                new com.ureca.myureca.domain.reconciliation.ReconciliationLog(
+                        com.ureca.myureca.domain.reconciliation.ReconciliationType.EVENT_REPUBLISH,
+                        RECEIPT_ID, null, "coupon-issued-events", "{}", null);
+        log.recordOriginalFailure("Kafka 발행 실패");
+        when(couponIssueRepository.findByReceiptId(RECEIPT_ID)).thenReturn(Optional.empty());
+        when(reconciliationLogRepository.findByEventKey(RECEIPT_ID)).thenReturn(Optional.of(log));
+
+        var response = myCouponQueryService.getIssueStatusByReceiptId(RECEIPT_ID);
+
+        assertThat(response.status())
+                .isEqualTo(com.ureca.myureca.dto.response.CouponIssueStatusResponse.Status.FAILED);
+        assertThat(response.note()).contains("Kafka 발행 실패");
+    }
+
+    @DisplayName("재처리 로그가 이미 SUCCESS면 Consumer가 곧 따라잡을 것이므로 PENDING과 동일하게 본다")
+    @Test
+    void 접수상태_재처리_성공건은_PENDING으로_본다() {
+        com.ureca.myureca.domain.reconciliation.ReconciliationLog log =
+                new com.ureca.myureca.domain.reconciliation.ReconciliationLog(
+                        com.ureca.myureca.domain.reconciliation.ReconciliationType.EVENT_REPUBLISH,
+                        RECEIPT_ID, null, "coupon-issued-events", "{}", null);
+        log.markSuccess();
+        when(couponIssueRepository.findByReceiptId(RECEIPT_ID)).thenReturn(Optional.empty());
+        when(reconciliationLogRepository.findByEventKey(RECEIPT_ID)).thenReturn(Optional.of(log));
+
+        var response = myCouponQueryService.getIssueStatusByReceiptId(RECEIPT_ID);
+
+        assertThat(response.status())
+                .isEqualTo(com.ureca.myureca.dto.response.CouponIssueStatusResponse.Status.PENDING);
     }
 
     // ---------- 내 쿠폰함 목록 ----------

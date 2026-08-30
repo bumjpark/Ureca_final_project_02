@@ -13,6 +13,7 @@ import com.ureca.myureca.domain.coupon.CouponPolicy;
 import com.ureca.myureca.domain.coupon.CouponType;
 import com.ureca.myureca.domain.verification.VerificationReport;
 import com.ureca.myureca.domain.verification.VerificationStatus;
+import com.ureca.myureca.dto.response.VerificationMismatchRowResponse;
 import com.ureca.myureca.dto.response.VerificationReportResponse;
 import com.ureca.myureca.exception.CouponPolicyNotFoundException;
 import com.ureca.myureca.exception.VerificationNotAllowedException;
@@ -431,6 +432,92 @@ class VerificationServiceTest {
 
         assertThatThrownBy(() -> service.getVerificationReportCsv(100L))
                 .isInstanceOf(VerificationReportFileMissingException.class);
+    }
+
+    @Test
+    void 불일치_CSV를_파싱해_행_목록으로_돌려준다() throws Exception {
+        VerificationAsyncTrigger.MismatchReportWriter realWriter =
+                new VerificationAsyncTrigger.MismatchReportWriter(tempDir.toString());
+        VerificationService service = new VerificationService(
+                couponPolicyRepository, verificationReportRepository, redisTemplate, asyncTrigger, realWriter);
+
+        Path csvFile = tempDir.resolve("verification-1-mismatch.csv");
+        Files.writeString(csvFile,
+                "policyId,userId,couponIssueId,discrepancyType,detectedAt\n"
+                        + "1,10,,REDIS_ONLY,2026-08-29T12:00:00\n"
+                        + "1,,,OVERSOLD(+3),2026-08-29T12:00:00\n"
+                        + "1,20,55,HISTORY_MISMATCH,2026-08-29T12:00:00\n");
+
+        VerificationReport report = new VerificationReport(
+                policy(1L), LocalDateTime.now(), 3, 0, 3, VerificationStatus.MISMATCH_FOUND
+        );
+        report.attachReportUrl(csvFile.toString());
+        ReflectionTestUtils.setField(report, "id", 100L);
+        when(verificationReportRepository.findById(100L)).thenReturn(Optional.of(report));
+
+        PageResponse<VerificationMismatchRowResponse> result =
+                service.getVerificationReportMismatches(100L, PageRequest.of(0, 20));
+
+        assertThat(result.totalElements()).isEqualTo(3);
+        assertThat(result.totalPages()).isEqualTo(1);
+        assertThat(result.content()).hasSize(3);
+        assertThat(result.content().get(0).userId()).isEqualTo(10L);
+        assertThat(result.content().get(0).couponIssueId()).isNull();
+        assertThat(result.content().get(0).discrepancyType()).isEqualTo("REDIS_ONLY");
+        // 정책 단위 요약 행(OVERSOLD)은 userId/couponIssueId가 둘 다 비어있다
+        assertThat(result.content().get(1).userId()).isNull();
+        assertThat(result.content().get(1).discrepancyType()).isEqualTo("OVERSOLD(+3)");
+        assertThat(result.content().get(2).userId()).isEqualTo(20L);
+        assertThat(result.content().get(2).couponIssueId()).isEqualTo(55L);
+    }
+
+    @Test
+    void 불일치_조회는_요청한_페이지_크기만큼만_잘라서_돌려준다() throws Exception {
+        VerificationAsyncTrigger.MismatchReportWriter realWriter =
+                new VerificationAsyncTrigger.MismatchReportWriter(tempDir.toString());
+        VerificationService service = new VerificationService(
+                couponPolicyRepository, verificationReportRepository, redisTemplate, asyncTrigger, realWriter);
+
+        StringBuilder csv = new StringBuilder("policyId,userId,couponIssueId,discrepancyType,detectedAt\n");
+        for (long userId = 1; userId <= 5; userId++) {
+            csv.append("1,").append(userId).append(",,REDIS_ONLY,2026-08-29T12:00:00\n");
+        }
+        Path csvFile = tempDir.resolve("verification-1-paged.csv");
+        Files.writeString(csvFile, csv.toString());
+
+        VerificationReport report = new VerificationReport(
+                policy(1L), LocalDateTime.now(), 5, 0, 5, VerificationStatus.MISMATCH_FOUND
+        );
+        report.attachReportUrl(csvFile.toString());
+        ReflectionTestUtils.setField(report, "id", 100L);
+        when(verificationReportRepository.findById(100L)).thenReturn(Optional.of(report));
+
+        PageResponse<VerificationMismatchRowResponse> firstPage =
+                service.getVerificationReportMismatches(100L, PageRequest.of(0, 2));
+        PageResponse<VerificationMismatchRowResponse> secondPage =
+                service.getVerificationReportMismatches(100L, PageRequest.of(1, 2));
+
+        assertThat(firstPage.totalElements()).isEqualTo(5);
+        assertThat(firstPage.totalPages()).isEqualTo(3);
+        assertThat(firstPage.content()).extracting(VerificationMismatchRowResponse::userId).containsExactly(1L, 2L);
+        assertThat(secondPage.content()).extracting(VerificationMismatchRowResponse::userId).containsExactly(3L, 4L);
+    }
+
+    @Test
+    void reportUrl이_없으면_불일치_조회도_CSV_다운로드와_같은_예외를_던진다() {
+        VerificationReport report = completedReport(1L, 100L); // SUCCESS, reportUrl 없음
+        when(verificationReportRepository.findById(100L)).thenReturn(Optional.of(report));
+
+        assertThatThrownBy(() -> verificationService.getVerificationReportMismatches(100L, PageRequest.of(0, 20)))
+                .isInstanceOf(VerificationReportCsvNotAvailableException.class);
+    }
+
+    @Test
+    void 존재하지_않는_리포트_id면_불일치_조회에도_예외가_발생한다() {
+        when(verificationReportRepository.findById(999L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> verificationService.getVerificationReportMismatches(999L, PageRequest.of(0, 20)))
+                .isInstanceOf(VerificationReportNotFoundException.class);
     }
 
     private VerificationReport completedReport(long policyId, long reportId) {

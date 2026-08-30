@@ -1,0 +1,58 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #f4f4f5; }
+    .note { border: 1px dashed #a1a1aa; background: #f4f4f5; padding: 8px 12px; font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #52525b; line-height: 1.5; }
+    .note b { display:block; color:#18181b; font-size:12px; margin-bottom:2px; }
+    .case { border:1px solid #e4e4e7; border-radius:6px; padding:10px 12px; font-size:12px; color:#71717a; }
+    .case b { color:#3f3f46; }
+  </style>
+</helmet>
+<div style="width:960px; min-height:640px; background:#fff; box-sizing:border-box; display:flex; flex-direction:column;">
+  <div class="note" style="border-radius:0;">
+    <b>[공통] 에러 / 예외 안내 화면</b>
+    전 API 공통 에러 응답 처리
+  </div>
+
+  <div style="padding:24px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:20px; flex-grow:1; text-align:center;">
+    <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="1.5">
+      <circle cx="12" cy="12" r="9.25"/>
+      <line x1="12" y1="7.5" x2="12" y2="13"/>
+      <circle cx="12" cy="16.5" r="0.9" fill="#a1a1aa" stroke="none"/>
+    </svg>
+
+    <div>
+      <div style="font-size:19px; font-weight:700; color:#18181b; margin-bottom:6px;">쿠폰이 모두 소진되었습니다</div>
+      <div style="font-size:13px; color:#71717a; line-height:1.5;">아쉽지만 이번 이벤트의 쿠폰이 모두 발급 완료되었어요</div>
+    </div>
+
+    <button style="padding:12px 28px; font-size:14px; font-weight:600; border-radius:6px; border:none; background:#18181b; color:#fff;">목록으로 돌아가기</button>
+
+    <div style="width:640px; display:flex; flex-direction:column; gap:10px; margin-top:10px; text-align:left;">
+      <div style="font-size:11px; color:#a1a1aa;">이 템플릿을 재사용하는 그 밖의 예외 케이스</div>
+      <div style="display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:10px;">
+        <div class="case"><b>중복 발급 시도</b> — 이미 발급받은 쿠폰이에요 (내 쿠폰함에서 확인)</div>
+        <div class="case"><b>대기열 만료</b> — 대기 시간이 초과되어 처음부터 다시 시도해주세요</div>
+        <div class="case"><b>오픈 전 접근</b> — 아직 발급이 시작되지 않았어요</div>
+        <div class="case"><b>네트워크 오류</b> — 잠시 후 다시 시도해주세요</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

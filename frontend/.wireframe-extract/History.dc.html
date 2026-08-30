@@ -1,0 +1,75 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #f4f4f5; }
+    .note { border: 1px dashed #a1a1aa; background: #f4f4f5; padding: 8px 12px; font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #52525b; line-height: 1.5; }
+    .note b { display:block; color:#18181b; font-size:12px; margin-bottom:2px; }
+    .tl { display:flex; gap:12px; }
+    .tl .dot-col { display:flex; flex-direction:column; align-items:center; }
+    .tl .dot { width:10px; height:10px; border-radius:50%; background:#18181b; }
+    .tl .line { width:1px; flex-grow:1; background:#d4d4d8; }
+    .tl-body { padding-bottom:22px; flex-grow:1; }
+  </style>
+</helmet>
+<div style="width:960px; min-height:640px; background:#fff; box-sizing:border-box; display:flex; flex-direction:column;">
+  <div class="note" style="border-radius:0;">
+    <b>[사용자] 쿠폰 이력 타임라인</b>
+    API: GET /api/coupons/{couponIssueId}/history
+  </div>
+
+  <div style="padding:24px; display:flex; flex-direction:column; align-items:center; flex-grow:1;">
+    <div style="width:520px; display:flex; flex-direction:column; gap:16px;">
+      <div style="font-size:13px; color:#71717a;">&lt; 쿠폰 상세</div>
+      <div style="font-size:18px; font-weight:700; color:#18181b;">여름 시즌 정률 할인 쿠폰 · 이력</div>
+
+      <div style="display:flex; flex-direction:column;">
+        <div class="tl">
+          <div class="dot-col"><div class="dot"></div><div class="line"></div></div>
+          <div class="tl-body">
+            <div style="font-size:11px; color:#a1a1aa;">2026-08-20 12:00:14</div>
+            <div style="font-size:13px; font-weight:600; color:#18181b; margin-top:2px;">발급됨 (신규 → ISSUED)</div>
+          </div>
+        </div>
+        <div class="tl">
+          <div class="dot-col"><div class="dot"></div><div class="line"></div></div>
+          <div class="tl-body">
+            <div style="font-size:11px; color:#a1a1aa;">2026-08-21 09:03:41</div>
+            <div style="font-size:13px; font-weight:600; color:#18181b; margin-top:2px;">사용됨 (ISSUED → USED)</div>
+          </div>
+        </div>
+        <div class="tl">
+          <div class="dot-col"><div class="dot"></div><div class="line"></div></div>
+          <div class="tl-body">
+            <div style="font-size:11px; color:#a1a1aa;">2026-08-21 09:10:02</div>
+            <div style="font-size:13px; font-weight:600; color:#18181b; margin-top:2px;">사용취소 (USED → ISSUED)</div>
+            <div style="font-size:12px; color:#71717a; margin-top:4px; border:1px solid #e4e4e7; border-radius:6px; padding:8px;">사유: 주문 취소로 인한 쿠폰 복구</div>
+          </div>
+        </div>
+        <div class="tl">
+          <div class="dot-col"><div class="dot" style="background:#d4d4d8;"></div></div>
+          <div class="tl-body">
+            <div style="font-size:11px; color:#a1a1aa;">현재</div>
+            <div style="font-size:13px; font-weight:600; color:#52525b; margin-top:2px;">발급됨 (ISSUED)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

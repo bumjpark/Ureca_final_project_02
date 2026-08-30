@@ -18,6 +18,7 @@ import com.ureca.myureca.repository.CouponHistoryStatusSnapshot;
 import com.ureca.myureca.repository.CouponIssueLifecycleSnapshot;
 import com.ureca.myureca.repository.CouponIssueRepository;
 import com.ureca.myureca.repository.QueueJoinLogRepository;
+import com.ureca.myureca.repository.ReconciliationLogRepository;
 import com.ureca.myureca.repository.VerificationReportRepository;
 import com.ureca.myureca.service.VerificationAsyncTrigger.LifecycleAnomaly;
 import com.ureca.myureca.service.VerificationAsyncTrigger.MismatchFindings;
@@ -37,6 +38,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.test.util.ReflectionTestUtils;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * PENDING 리포트를 비교해서 완료 처리하는 로직 테스트.
@@ -71,6 +73,9 @@ class VerificationAsyncTriggerTest {
     @Mock
     private QueueJoinLogRepository queueJoinLogRepository;
 
+    @Mock
+    private ReconciliationLogRepository reconciliationLogRepository;
+
     private VerificationAsyncTrigger asyncTrigger;
 
     @BeforeEach
@@ -88,6 +93,10 @@ class VerificationAsyncTriggerTest {
         org.mockito.Mockito.lenient()
                 .when(queueJoinLogRepository.countByCouponPolicyIdAndQueueRankLessThanEqual(any(), any()))
                 .thenReturn(0L);
+        // REDIS_ONLY 드리프트 등록(신규) — 대부분의 기존 테스트는 이 경로와 무관하므로
+        // "아직 등록된 적 없음"(existsByEventKey=false) 기본값으로 흐른다.
+        org.mockito.Mockito.lenient()
+                .when(reconciliationLogRepository.existsByEventKey(any())).thenReturn(false);
 
         // execute()가 트랜잭션 프록시를 얻어오는 자기 참조. 유닛 테스트에는 프록시가 없으므로
         // 자기 자신을 그대로 돌려준다(이 테스트들은 performVerification을 직접 호출하지만,
@@ -95,9 +104,16 @@ class VerificationAsyncTriggerTest {
         @SuppressWarnings("unchecked")
         ObjectProvider<VerificationAsyncTrigger> selfProvider = mock(ObjectProvider.class);
 
+        // Check D(미아 예약): 기본은 "오래된 예약 없음". 이 경로를 검증하는 테스트만 개별로 덮어쓴다.
+        org.mockito.Mockito.lenient()
+                .when(zSetOperations.rangeByScore(any(), org.mockito.ArgumentMatchers.anyDouble(),
+                        org.mockito.ArgumentMatchers.anyDouble()))
+                .thenReturn(Set.of());
+
         asyncTrigger = new VerificationAsyncTrigger(
                 couponIssueRepository, verificationReportRepository, redisTemplate, mismatchReportWriter,
-                couponHistoryRepository, queueJoinLogRepository, selfProvider
+                couponHistoryRepository, queueJoinLogRepository, reconciliationLogRepository, new ObjectMapper(),
+                selfProvider, java.time.Duration.ofMinutes(5)
         );
         org.mockito.Mockito.lenient().when(selfProvider.getObject()).thenReturn(asyncTrigger);
     }
@@ -215,7 +231,7 @@ class VerificationAsyncTriggerTest {
         assertThat(report.getMismatchCount()).isEqualTo(2); // (300 못받음, 999 잘못받음) 쌍
         verify(mismatchReportWriter).write(eq(1L), any(),
                 eq(new MismatchFindings(Set.of(100L, 200L, 999L), Set.of(100L, 200L, 999L), 0, 0, List.of(),
-                        Set.of(100L, 200L, 300L))));
+                        Set.of(100L, 200L, 300L), Set.of())));
     }
 
     @Test
@@ -237,7 +253,115 @@ class VerificationAsyncTriggerTest {
         assertThat(report.getReportUrl()).isEqualTo(expectedCsvPath.toString());
         verify(mismatchReportWriter).write(
                 eq(1L), any(),
-                eq(new MismatchFindings(Set.of(100L, 200L), Set.of(100L, 200L, 999L), 0, 0, List.of(), Set.of())));
+                eq(new MismatchFindings(Set.of(100L, 200L), Set.of(100L, 200L, 999L), 0, 0, List.of(), Set.of(), Set.of())));
+    }
+
+    @Test
+    void Redis에만_있는_유저가_있으면_reconciliation_log에_ISSUE_REPROCESS로_등록된다() {
+        CouponPolicy policy = policy(1L, 10000);
+        VerificationReport report = pendingReport(policy);
+        when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
+        when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(100L));
+        when(setOperations.members(any())).thenReturn(Set.of("100", "999"));
+        when(zSetOperations.size(any())).thenReturn(0L);
+        when(valueOperations.get(any())).thenReturn("9999");
+        when(mismatchReportWriter.write(any(), any(), any())).thenReturn(Path.of("reports/x.csv"));
+
+        asyncTrigger.performVerification(1L);
+
+        org.mockito.ArgumentCaptor<com.ureca.myureca.domain.reconciliation.ReconciliationLog> captor =
+                org.mockito.ArgumentCaptor.forClass(com.ureca.myureca.domain.reconciliation.ReconciliationLog.class);
+        verify(reconciliationLogRepository).save(captor.capture());
+        com.ureca.myureca.domain.reconciliation.ReconciliationLog saved = captor.getValue();
+        assertThat(saved.getType()).isEqualTo(com.ureca.myureca.domain.reconciliation.ReconciliationType.ISSUE_REPROCESS);
+        assertThat(saved.getEventKey()).isEqualTo("verify-redis-only:1:999");
+        assertThat(saved.getCouponIssue()).isNull();
+        assertThat(saved.getFailReason()).contains("REDIS_ONLY");
+    }
+
+    @Test
+    void 이미_등록된_REDIS_ONLY_드리프트는_중복_등록하지_않는다() {
+        CouponPolicy policy = policy(1L, 10000);
+        VerificationReport report = pendingReport(policy);
+        when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
+        when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(100L));
+        when(setOperations.members(any())).thenReturn(Set.of("100", "999"));
+        when(zSetOperations.size(any())).thenReturn(0L);
+        when(valueOperations.get(any())).thenReturn("9999");
+        when(mismatchReportWriter.write(any(), any(), any())).thenReturn(Path.of("reports/x.csv"));
+        when(reconciliationLogRepository.existsByEventKey("verify-redis-only:1:999")).thenReturn(true);
+
+        asyncTrigger.performVerification(1L);
+
+        verify(reconciliationLogRepository, never()).save(any());
+    }
+
+    /**
+     * Lua가 재고를 깎고 reserved에 넣은 직후 Kafka 발행 전에 프로세스가 죽는 경로가 여기로 떨어진다.
+     * 이 유저는 issued SET에 없어 REDIS_ONLY가 아니고, computeStockLeakCount도 reserved를
+     * "처리 중"으로 세기 때문에 재고 누수로도 안 잡힌다 — Check D가 없으면 어디에도 안 걸린다.
+     */
+    @Test
+    void 임계_시간을_넘긴_미아_예약은_MISMATCH이고_ISSUE_REPROCESS로_등록된다() {
+        CouponPolicy policy = policy(1L, 10000);
+        VerificationReport report = pendingReport(policy);
+        when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
+        when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(100L));
+        when(setOperations.members(any())).thenReturn(Set.of("100"));
+        when(zSetOperations.size(any())).thenReturn(1L); // userId=777이 reserved에 남아있음
+        when(valueOperations.get(any())).thenReturn("9998"); // 깎인 2건 = dbIssued(1) + reserved(1) → 누수 0
+        when(zSetOperations.rangeByScore(any(), org.mockito.ArgumentMatchers.anyDouble(),
+                org.mockito.ArgumentMatchers.anyDouble())).thenReturn(Set.of("777"));
+        when(mismatchReportWriter.write(any(), any(), any())).thenReturn(Path.of("reports/x.csv"));
+
+        asyncTrigger.performVerification(1L);
+
+        assertThat(report.getStatus()).isEqualTo(VerificationStatus.MISMATCH_FOUND);
+        assertThat(report.getMismatchCount()).isEqualTo(1);
+
+        org.mockito.ArgumentCaptor<com.ureca.myureca.domain.reconciliation.ReconciliationLog> captor =
+                org.mockito.ArgumentCaptor.forClass(com.ureca.myureca.domain.reconciliation.ReconciliationLog.class);
+        verify(reconciliationLogRepository).save(captor.capture());
+        assertThat(captor.getValue().getEventKey()).isEqualTo("verify-reserved-stale:1:777");
+        assertThat(captor.getValue().getFailReason()).contains("미아 예약");
+    }
+
+    @Test
+    void 아직_임계_시간을_안_넘긴_예약은_정상_처리중으로_보고_오탐하지_않는다() {
+        CouponPolicy policy = policy(1L, 10000);
+        VerificationReport report = pendingReport(policy);
+        when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
+        when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(100L));
+        when(setOperations.members(any())).thenReturn(Set.of("100"));
+        when(zSetOperations.size(any())).thenReturn(1L); // reserved에 1건 있지만
+        when(valueOperations.get(any())).thenReturn("9998");
+        // rangeByScore(임계 이전)는 비어있다 = 방금 예약된 정상 건 → setUp의 기본 스텁 그대로
+
+        asyncTrigger.performVerification(1L);
+
+        assertThat(report.getStatus()).isEqualTo(VerificationStatus.SUCCESS);
+        assertThat(report.getMismatchCount()).isZero();
+        verify(reconciliationLogRepository, never()).save(any());
+    }
+
+    @Test
+    void 미아_예약이라도_이미_DB에_있으면_유실이_아니므로_오탐하지_않는다() {
+        CouponPolicy policy = policy(1L, 10000);
+        VerificationReport report = pendingReport(policy);
+        when(verificationReportRepository.findById(1L)).thenReturn(Optional.of(report));
+        when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of(100L));
+        when(setOperations.members(any())).thenReturn(Set.of("100"));
+        when(zSetOperations.size(any())).thenReturn(1L);
+        when(valueOperations.get(any())).thenReturn("9998");
+        // DB에 이미 있는 유저가 reserved에도 남아있는 상태 = 컨슈머가 ZREM만 못 한 것이라
+        // 쿠폰은 정상 발급됐다. 재발급 대상이 아니다.
+        when(zSetOperations.rangeByScore(any(), org.mockito.ArgumentMatchers.anyDouble(),
+                org.mockito.ArgumentMatchers.anyDouble())).thenReturn(Set.of("100"));
+
+        asyncTrigger.performVerification(1L);
+
+        assertThat(report.getMismatchCount()).isZero();
+        verify(reconciliationLogRepository, never()).save(any());
     }
 
     @Test
@@ -293,7 +417,7 @@ class VerificationAsyncTriggerTest {
         assertThat(report.getMismatchCount()).isEqualTo(1); // 초과분 1건 (누수는 음수라 0건)
         assertThat(report.getReportUrl()).isNotNull();
         verify(mismatchReportWriter).write(eq(1L), any(),
-                eq(new MismatchFindings(Set.of(100L, 200L, 300L), Set.of(100L, 200L, 300L), 1, 0, List.of(), Set.of())));
+                eq(new MismatchFindings(Set.of(100L, 200L, 300L), Set.of(100L, 200L, 300L), 1, 0, List.of(), Set.of(), Set.of())));
     }
 
     @Test
@@ -315,7 +439,7 @@ class VerificationAsyncTriggerTest {
         assertThat(report.getMismatchCount()).isEqualTo(3);
         verify(mismatchReportWriter).write(eq(1L), any(),
                 eq(new MismatchFindings(Set.of(1L, 2L, 3L, 4L, 5L, 6L), Set.of(1L, 2L, 3L, 4L, 5L, 6L), 0, 3,
-                        List.of(), Set.of())));
+                        List.of(), Set.of(), Set.of())));
     }
 
     @Test
@@ -355,7 +479,7 @@ class VerificationAsyncTriggerTest {
         assertThat(report.getMismatchCount()).isEqualTo(1);
         verify(mismatchReportWriter).write(eq(1L), any(),
                 eq(new MismatchFindings(Set.of(100L), Set.of(100L), 0, 0,
-                        List.of(new LifecycleAnomaly(10L, 100L, "HISTORY_MISMATCH")), Set.of())));
+                        List.of(new LifecycleAnomaly(10L, 100L, "HISTORY_MISMATCH")), Set.of(), Set.of())));
     }
 
     @Test
@@ -376,7 +500,7 @@ class VerificationAsyncTriggerTest {
         assertThat(report.getMismatchCount()).isEqualTo(1);
         verify(mismatchReportWriter).write(eq(1L), any(),
                 eq(new MismatchFindings(Set.of(100L), Set.of(100L), 0, 0,
-                        List.of(new LifecycleAnomaly(10L, 100L, "MISSING_HISTORY")), Set.of())));
+                        List.of(new LifecycleAnomaly(10L, 100L, "MISSING_HISTORY")), Set.of(), Set.of())));
     }
 
     @Test
@@ -396,7 +520,7 @@ class VerificationAsyncTriggerTest {
         assertThat(report.getMismatchCount()).isEqualTo(1);
         verify(mismatchReportWriter).write(eq(1L), any(),
                 eq(new MismatchFindings(Set.of(100L), Set.of(100L), 0, 0,
-                        List.of(new LifecycleAnomaly(10L, 100L, "MISSING_HISTORY")), Set.of())));
+                        List.of(new LifecycleAnomaly(10L, 100L, "MISSING_HISTORY")), Set.of(), Set.of())));
     }
 
     @Test

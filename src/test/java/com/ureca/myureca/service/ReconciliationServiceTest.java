@@ -53,7 +53,7 @@ class ReconciliationServiceTest {
 
     private ReconciliationLogResponse response(long id, ReconciliationStatus status) {
         return new ReconciliationLogResponse(id, ReconciliationType.EVENT_REPUBLISH, status,
-                "event-key-" + id, null, "coupon-issued-events", 1, null, null, null);
+                "event-key-" + id, null, null, "coupon-issued-events", 1, null, null, null);
     }
 
     /** protected 기본 생성자를 리플렉션으로 열어 CouponPolicy/User 없이 id만 채운 프록시성 인스턴스를 만든다. */
@@ -69,11 +69,11 @@ class ReconciliationServiceTest {
     void 필터가_없으면_전체_이력을_최신순으로_조회한다() {
         Pageable pageable = PageRequest.of(0, 10);
         ReconciliationLog log1 = log(1L);
-        when(reconciliationLogRepository.findAllByOrderByCreatedAtDesc(pageable))
+        when(reconciliationLogRepository.search(null, null, null, pageable))
                 .thenReturn(new PageImpl<>(List.of(log1), pageable, 1));
 
         PageResponse<ReconciliationLogResponse> result =
-                reconciliationService.getReconciliationLogs(null, null, pageable);
+                reconciliationService.getReconciliationLogs(null, null, null, pageable);
 
         assertThat(result.content()).extracting(ReconciliationLogResponse::id).containsExactly(1L);
         assertThat(result.totalElements()).isEqualTo(1);
@@ -83,25 +83,24 @@ class ReconciliationServiceTest {
     void type만_지정하면_type으로만_필터링한다() {
         Pageable pageable = PageRequest.of(0, 10);
         ReconciliationLog log1 = log(1L);
-        when(reconciliationLogRepository.findByTypeOrderByCreatedAtDesc(ReconciliationType.EVENT_REPUBLISH, pageable))
+        when(reconciliationLogRepository.search(null, ReconciliationType.EVENT_REPUBLISH, null, pageable))
                 .thenReturn(new PageImpl<>(List.of(log1), pageable, 1));
 
         PageResponse<ReconciliationLogResponse> result =
-                reconciliationService.getReconciliationLogs(ReconciliationType.EVENT_REPUBLISH, null, pageable);
+                reconciliationService.getReconciliationLogs(null, ReconciliationType.EVENT_REPUBLISH, null, pageable);
 
         assertThat(result.content()).hasSize(1);
-        verify(reconciliationLogRepository, never()).findAllByOrderByCreatedAtDesc(any());
     }
 
     @Test
     void status만_지정하면_status로만_필터링한다() {
         Pageable pageable = PageRequest.of(0, 10);
         ReconciliationLog log1 = log(1L);
-        when(reconciliationLogRepository.findByStatusOrderByCreatedAtDesc(ReconciliationStatus.FAILED, pageable))
+        when(reconciliationLogRepository.search(null, null, ReconciliationStatus.FAILED, pageable))
                 .thenReturn(new PageImpl<>(List.of(log1), pageable, 1));
 
         PageResponse<ReconciliationLogResponse> result =
-                reconciliationService.getReconciliationLogs(null, ReconciliationStatus.FAILED, pageable);
+                reconciliationService.getReconciliationLogs(null, null, ReconciliationStatus.FAILED, pageable);
 
         assertThat(result.content()).hasSize(1);
     }
@@ -110,27 +109,42 @@ class ReconciliationServiceTest {
     void type과_status가_모두_있으면_둘_다로_필터링한다() {
         Pageable pageable = PageRequest.of(0, 10);
         ReconciliationLog log1 = log(1L);
-        when(reconciliationLogRepository.findByTypeAndStatusOrderByCreatedAtDesc(
-                ReconciliationType.EVENT_REPUBLISH, ReconciliationStatus.FAILED, pageable))
+        when(reconciliationLogRepository.search(
+                null, ReconciliationType.EVENT_REPUBLISH, ReconciliationStatus.FAILED, pageable))
                 .thenReturn(new PageImpl<>(List.of(log1), pageable, 1));
 
         PageResponse<ReconciliationLogResponse> result = reconciliationService.getReconciliationLogs(
-                ReconciliationType.EVENT_REPUBLISH, ReconciliationStatus.FAILED, pageable);
+                null, ReconciliationType.EVENT_REPUBLISH, ReconciliationStatus.FAILED, pageable);
 
         assertThat(result.content()).hasSize(1);
     }
 
     @Test
-    void couponIssue가_없는_로그는_couponIssueId가_null이다() {
+    void policyId를_지정하면_해당_정책의_이력만_조회한다() {
         Pageable pageable = PageRequest.of(0, 10);
-        ReconciliationLog log1 = log(1L); // REDIS_RECOVER 등 특정 발급 건에 안 묶이는 케이스를 흉내
-        when(reconciliationLogRepository.findAllByOrderByCreatedAtDesc(pageable))
+        ReconciliationLog log1 = log(1L);
+        when(reconciliationLogRepository.search(5L, null, null, pageable))
                 .thenReturn(new PageImpl<>(List.of(log1), pageable, 1));
 
         PageResponse<ReconciliationLogResponse> result =
-                reconciliationService.getReconciliationLogs(null, null, pageable);
+                reconciliationService.getReconciliationLogs(5L, null, null, pageable);
+
+        assertThat(result.content()).hasSize(1);
+        verify(reconciliationLogRepository).search(5L, null, null, pageable);
+    }
+
+    @Test
+    void couponIssue가_없는_로그는_couponIssueId와_policyId가_모두_null이다() {
+        Pageable pageable = PageRequest.of(0, 10);
+        ReconciliationLog log1 = log(1L); // REDIS_RECOVER 등 특정 발급 건에 안 묶이는 케이스를 흉내
+        when(reconciliationLogRepository.search(null, null, null, pageable))
+                .thenReturn(new PageImpl<>(List.of(log1), pageable, 1));
+
+        PageResponse<ReconciliationLogResponse> result =
+                reconciliationService.getReconciliationLogs(null, null, null, pageable);
 
         assertThat(result.content().get(0).couponIssueId()).isNull();
+        assertThat(result.content().get(0).policyId()).isNull();
     }
 
     @Test
@@ -139,13 +153,15 @@ class ReconciliationServiceTest {
         ReconciliationLog log1 = new ReconciliationLog(
                 ReconciliationType.EVENT_REPUBLISH, "event-key-1", couponIssue(77L), "coupon-issued-events", "{}", "admin");
         ReflectionTestUtils.setField(log1, "id", 1L);
-        when(reconciliationLogRepository.findAllByOrderByCreatedAtDesc(pageable))
+        when(reconciliationLogRepository.search(null, null, null, pageable))
                 .thenReturn(new PageImpl<>(List.of(log1), pageable, 1));
 
         PageResponse<ReconciliationLogResponse> result =
-                reconciliationService.getReconciliationLogs(null, null, pageable);
+                reconciliationService.getReconciliationLogs(null, null, null, pageable);
 
         assertThat(result.content().get(0).couponIssueId()).isEqualTo(77L);
+        // 테스트용 couponIssue()는 couponPolicy 연관관계 없이 id만 채운 프록시라 policyId는 null이 맞다.
+        assertThat(result.content().get(0).policyId()).isNull();
     }
 
     @Test

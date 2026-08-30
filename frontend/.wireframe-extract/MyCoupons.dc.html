@@ -1,0 +1,87 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #f4f4f5; }
+    a { color: #18181b; } a:hover { color: #52525b; }
+    .note { border: 1px dashed #a1a1aa; background: #f4f4f5; padding: 8px 12px; font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #52525b; line-height: 1.5; }
+    .note b { display:block; color:#18181b; font-size:12px; margin-bottom:2px; }
+    .tab { font-size:13px; padding:10px 18px; color:#a1a1aa; border-bottom:2px solid transparent; }
+    .tab.active { color:#18181b; font-weight:600; border-bottom:2px solid #18181b; }
+    .badge { display:inline-block; padding: 3px 8px; font-size: 11px; border-radius: 4px; }
+    .badge.issued { background:#18181b; color:#fff; }
+    .badge.used { background:#e4e4e7; color:#71717a; }
+    .badge.expired { background:#fff; border:1px solid #d4d4d8; color:#a1a1aa; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th { text-align:left; color:#a1a1aa; font-weight:600; font-size:11px; padding:10px 12px; border-bottom:1px solid #e4e4e7; }
+    td { padding:12px; border-bottom:1px solid #f4f4f5; color:#3f3f46; vertical-align:middle; }
+    tr:last-child td { border-bottom:none; }
+  </style>
+</helmet>
+<div style="width:960px; min-height:640px; background:#fff; box-sizing:border-box; display:flex; flex-direction:column;">
+  <div class="note" style="border-radius:0;">
+    <b>[사용자] 내 쿠폰함</b>
+    API: GET /api/users/{userId}/coupons
+  </div>
+
+  <div style="padding:24px; display:flex; flex-direction:column; gap:16px; flex-grow:1;">
+    <div style="display:flex; align-items:center; justify-content:space-between;">
+      <div style="font-size:22px; font-weight:700; color:#18181b;">내 쿠폰함</div>
+      <div style="display:flex; gap:22px; font-size:13px;">
+        <a href="#" style="text-decoration:none;">홈</a>
+        <span style="color:#18181b; font-weight:600;">내 쿠폰함</span>
+      </div>
+    </div>
+
+    <div style="display:flex; gap:4px; border-bottom:1px solid #e4e4e7;">
+      <div class="tab active">전체</div>
+      <div class="tab">발급됨</div>
+      <div class="tab">사용완료</div>
+      <div class="tab">만료</div>
+    </div>
+
+    <div style="border:1px solid #d4d4d8; border-radius:8px; overflow:hidden;">
+      <table>
+        <thead>
+          <tr><th>상태</th><th>쿠폰명</th><th>할인내용</th><th>일시</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="badge issued">발급됨</span></td>
+            <td style="font-weight:600; color:#18181b;">여름 시즌 정률 할인 쿠폰</td>
+            <td style="color:#71717a;">20% 할인 · 최대 5,000원</td>
+            <td style="color:#a1a1aa;">2026-08-20 12:00:14</td>
+          </tr>
+          <tr>
+            <td><span class="badge used">사용완료</span></td>
+            <td style="font-weight:600; color:#18181b;">런칭 기념 쿠폰</td>
+            <td style="color:#71717a;">10% 할인 · 최대 2,000원</td>
+            <td style="color:#a1a1aa;">2026-08-16 09:41:02</td>
+          </tr>
+          <tr style="opacity:0.6;">
+            <td><span class="badge expired">만료</span></td>
+            <td style="font-weight:600; color:#18181b;">가입 축하 쿠폰</td>
+            <td style="color:#71717a;">1,000원 즉시 할인</td>
+            <td style="color:#a1a1aa;">2026-07-30 23:59:59</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,66 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #f4f4f5; }
+    .note { border: 1px dashed #a1a1aa; background: #f4f4f5; padding: 8px 12px; font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #52525b; line-height: 1.5; }
+    .note b { display:block; color:#18181b; font-size:12px; margin-bottom:2px; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th { text-align:left; color:#a1a1aa; font-weight:600; font-size:11px; padding:10px 12px; border-bottom:1px solid #e4e4e7; }
+    td { padding:12px; border-bottom:1px solid #f4f4f5; color:#3f3f46; }
+    .badge { display:inline-block; padding:3px 8px; font-size:11px; border-radius:4px; background:#e4e4e7; color:#3f3f46; }
+  </style>
+</helmet>
+<div style="width:960px; min-height:640px; background:#fff; box-sizing:border-box; display:flex; flex-direction:column;">
+  <div class="note" style="border-radius:0;">
+    <b>[관리자] Mock 알림 로그 뷰어 (선택)</b>
+    API: POST /api/mock/notifications/kakao
+  </div>
+
+  <div style="padding:24px; display:flex; flex-direction:column; gap:16px;">
+    <div style="font-size:19px; font-weight:700; color:#18181b;">Mock 알림 발송 로그</div>
+    <div style="font-size:12px; color:#a1a1aa;">필수 화면은 아니며, 카카오 알림 Mocking 결과를 시연 시 확인하기 위한 용도입니다</div>
+
+    <div style="border:1px solid #d4d4d8; border-radius:8px; overflow:hidden;">
+      <table>
+        <thead>
+          <tr><th>발송 시각</th><th>수신자</th><th>템플릿</th><th>내용 요약</th><th>상태</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>2026-08-20 12:00:15</td>
+            <td>홍*동</td>
+            <td>coupon_issued</td>
+            <td>쿠폰이 발급되었습니다: 여름 시즌 정률 할인 쿠폰</td>
+            <td><span class="badge">MOCK 발송됨</span></td>
+          </tr>
+          <tr>
+            <td>2026-08-20 12:00:18</td>
+            <td>김*수</td>
+            <td>coupon_issued</td>
+            <td>쿠폰이 발급되었습니다: 여름 시즌 정률 할인 쿠폰</td>
+            <td><span class="badge">MOCK 발송됨</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="font-size:11px; color:#a1a1aa;">개인정보 마스킹 인터셉터가 적용되어 수신자 이름은 마스킹되어 표시됩니다</div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

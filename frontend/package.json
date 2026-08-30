@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "선착순 쿠폰 발급 시스템 myureca — 동시성 제어·데이터 정합성 시연용 프론트엔드",
+  "description": "선착순 쿠폰 발급 시스템 myureca — 와이어프레임 18화면을 실제 백엔드에 연결한 프론트엔드",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -13,8 +13,7 @@
     "@tanstack/react-query": "^5.62.7",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "react-router-dom": "^7.1.1",
-    "recharts": "^2.15.0"
+    "react-router-dom": "^7.1.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.11",
