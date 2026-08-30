@@ -181,6 +181,14 @@ export function listMockNotificationLogs({ policyId, page = 0, size = 20 } = {})
   return apiJson(`/api/mock/notifications/logs?${qs.toString()}`);
 }
 
+// ── 300만 건 규모 정합성 검증 데모 (ScaleTestService) ──────────
+// 시딩/전체검증은 각각 수 분(시딩) ~ 수 분(검증)까지 걸릴 수 있다 — 호출부가 로딩 상태를
+// 충분히 길게 보여줘야 한다(react-query 기본 타임아웃에 걸리지 않도록 timeout 없이 그대로 둠).
+export const seedScaleTest = () => apiJson('/api/admin/scale-test/seed', { method: 'POST' });
+export const verifyAllScaleTest = () => apiJson('/api/admin/scale-test/verify-all', { method: 'POST' });
+export const getScaleTestStatus = () => apiJson('/api/admin/scale-test/status');
+export const deleteScaleTest = () => api('/api/admin/scale-test', { method: 'DELETE' });
+
 // ── 인프라 헬스체크 (deep = DB/Redis/Kafka 병렬 점검) ─────────
 export async function getHealth(deep = true) {
   try {

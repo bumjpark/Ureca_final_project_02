@@ -22,4 +22,7 @@ public interface VerificationReportRepository extends JpaRepository<Verification
 
     Page<VerificationReport> findByCouponPolicy_IdAndStatusOrderByRunAtDesc(
             Long policyId, VerificationStatus status, Pageable pageable);
+
+    /** ScaleTestService가 방금 dispatch한 검증이 끝났는지 폴링할 때 최신 리포트 1건만 본다. */
+    Optional<VerificationReport> findFirstByCouponPolicy_IdOrderByIdDesc(Long policyId);
 }
