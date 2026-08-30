@@ -53,19 +53,19 @@ export function QueueControlPanel({ policyId = null, allowGlobalToggle = true })
       )}
 
       {effectivePolicyId != null && (
-        <div className="border border-zinc-300 rounded-md p-4 flex items-center justify-between">
+        <div className="border border-line rounded-md p-4 flex items-center justify-between">
           <div>
-            <div className="text-[11px] text-zinc-400 mb-1">현재 대기 인원</div>
-            <div className="text-2xl font-bold text-zinc-900">
+            <div className="text-[11px] text-sub mb-1">현재 대기 인원</div>
+            <div className="text-2xl font-bold text-ink">
               {statusQ.data ? comma(statusQ.data.waitingCount) : '-'}
-              <span className="text-xs font-normal text-zinc-400 ml-1">명</span>
+              <span className="text-xs font-normal text-sub ml-1">명</span>
             </div>
           </div>
-          <div className="text-right text-xs text-zinc-500">
+          <div className="text-right text-xs text-sub">
             <div>적용 중인 처리 속도</div>
-            <div className="text-zinc-900 font-semibold">
+            <div className="text-ink font-semibold">
               {statusQ.data ? `${comma(statusQ.data.currentLimit)}건/s` : '-'}
-              {statusQ.data?.usingDefaultLimit && <span className="text-zinc-400 font-normal"> (글로벌 기본값)</span>}
+              {statusQ.data?.usingDefaultLimit && <span className="text-sub font-normal"> (글로벌 기본값)</span>}
             </div>
           </div>
         </div>
@@ -73,7 +73,7 @@ export function QueueControlPanel({ policyId = null, allowGlobalToggle = true })
 
       <form onSubmit={submit} className="flex flex-col gap-4">
         {allowGlobalToggle && (
-          <label className="flex items-center gap-2 text-sm text-zinc-600">
+          <label className="flex items-center gap-2 text-sm text-ink">
             <input type="checkbox" checked={global} onChange={(e) => setGlobal(e.target.checked)} />
             글로벌 기본값으로 설정 (특정 정책만 바꾸려면 해제)
           </label>
@@ -83,7 +83,7 @@ export function QueueControlPanel({ policyId = null, allowGlobalToggle = true })
           <PolicyPicker value={localPolicyId} onChange={setLocalPolicyId} policies={listQ.data?.content} />
         )}
 
-        <label className="flex flex-col gap-1.5 text-sm text-zinc-600">
+        <label className="flex flex-col gap-1.5 text-sm text-ink">
           초당 통과 인원 (1 ~ 50,000)
           <input
             type="number"
@@ -91,13 +91,13 @@ export function QueueControlPanel({ policyId = null, allowGlobalToggle = true })
             max="50000"
             value={limit}
             onChange={(e) => setLimit(e.target.value)}
-            className="border border-zinc-300 rounded-md px-3 py-2.5 text-sm"
+            className="border border-line rounded-md px-3 py-2.5 text-sm"
           />
         </label>
 
         <InlineError message={error} />
         {result && (
-          <div className="text-xs text-zinc-500 border border-zinc-200 rounded-md p-3">
+          <div className="text-xs text-sub border border-line rounded-md p-3">
             적용 완료: {result.policyId ? `정책 #${result.policyId}` : '글로벌'} → {result.limit}건/s
           </div>
         )}

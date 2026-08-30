@@ -33,7 +33,7 @@ export function LoadTestPanel({ policyId = null }) {
 
       <Card>
         <div className="flex items-center justify-between mb-2">
-          <div className="text-sm font-semibold text-zinc-900">전부 도커로 실행 (권장)</div>
+          <div className="text-sm font-semibold text-ink">전부 도커로 실행 (권장)</div>
           <div className="flex gap-1 text-[11px]">
             {[
               ['powershell', 'PowerShell'],
@@ -42,18 +42,18 @@ export function LoadTestPanel({ policyId = null }) {
               <button
                 key={key}
                 onClick={() => setShell(key)}
-                className={`px-2 py-1 rounded ${shell === key ? 'bg-zinc-900 text-white' : 'text-zinc-400 hover:text-zinc-700'}`}
+                className={`px-2 py-1 rounded ${shell === key ? 'bg-ink text-white' : 'text-sub hover:text-ink'}`}
               >
                 {label}
               </button>
             ))}
           </div>
         </div>
-        <pre className="bg-zinc-900 text-zinc-100 text-xs rounded-md p-3 overflow-x-auto whitespace-pre-wrap">
+        <pre className="bg-ink text-line text-xs rounded-btn p-3 overflow-x-auto whitespace-pre-wrap">
           {commands[shell]}
         </pre>
         {shell === 'bash' && (
-          <div className="text-[11px] text-zinc-400 mt-2">
+          <div className="text-[11px] text-sub mt-2">
             Git Bash에서는 <code className="font-mono">/scripts/...</code> 같은 경로를 자기 마음대로 윈도우
             경로로 바꿔버릴 수 있어요 — k6가 "파일을 못 찾겠다"고 하면 두 번째 줄 맨 앞에{' '}
             <code className="font-mono">MSYS_NO_PATHCONV=1</code>을 붙여서 다시 실행해보세요.
@@ -62,8 +62,8 @@ export function LoadTestPanel({ policyId = null }) {
       </Card>
 
       <Card>
-        <div className="text-sm font-semibold text-zinc-900 mb-2">옵션</div>
-        <div className="text-xs text-zinc-500 leading-relaxed">
+        <div className="text-sm font-semibold text-ink mb-2">옵션</div>
+        <div className="text-xs text-sub leading-relaxed">
           POLICY_ID(대상 정책{policyId ? ` — 지금 위 명령에 #${policyId}로 채워져 있어요` : ', 생략 시 자동 생성'}) ·
           STOCK(재고) · <b>PEAK(최대 VU, 기본 500 — "20k"로 돌리려면 반드시 지정)</b> ·
           RAMP/HOLD(램프업/유지 시간) · MODE(vus | arrival) ·
@@ -78,12 +78,12 @@ export function LoadTestPanel({ policyId = null }) {
         </div>
       </Card>
 
-      <div className="text-sm text-zinc-500">
+      <div className="text-sm text-sub">
         실행 중 대기열이 줄어드는지는 {policyId ? '대기열' : '위 정책의 작업 공간 → 대기열'} 탭에서, 초과 발급 0건
         확인은{' '}
         <Link
           to={policyId ? `/admin/${policyId}?tab=verification` : '/admin/verification'}
-          className="text-zinc-900 underline underline-offset-2"
+          className="text-ink underline underline-offset-2"
         >
           정합성 검증 {policyId ? '탭' : '리포트'}
         </Link>

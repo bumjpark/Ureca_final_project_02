@@ -50,7 +50,7 @@ export default function AdminVerificationReportDetailPage() {
         sub={`정책 #${report.policyId} · ${fmtDateTime(report.runAt)}`}
         right={
           <button
-            className="text-xs text-zinc-500 hover:text-zinc-900 hover:underline"
+            className="text-xs text-sub hover:text-ink hover:underline"
             onClick={() => navigate(`/admin/${report.policyId}?tab=verification`)}
           >
             ← 이 정책의 검증 탭으로
@@ -61,36 +61,36 @@ export default function AdminVerificationReportDetailPage() {
       <Card>
         <div className="flex items-center gap-6 flex-wrap">
           <Badge tone={STATUS_TONE[report.status]}>{STATUS_LABEL[report.status]}</Badge>
-          <div className="text-sm text-zinc-700">
+          <div className="text-sm text-ink">
             DB 발급 <b>{comma(report.totalIssued)}</b> / 총 발행 <b>{comma(report.totalQuantity)}</b> · Redis 예약{' '}
-            <b>{comma(report.totalReserved)}</b> · 불일치 <b className={report.mismatchCount > 0 ? 'text-zinc-900' : ''}>{comma(report.mismatchCount)}</b>
+            <b>{comma(report.totalReserved)}</b> · 불일치 <b className={report.mismatchCount > 0 ? 'text-ink' : ''}>{comma(report.mismatchCount)}</b>
             {report.oversoldCount > 0 && (
               <>
                 {' '}
-                · 초과발급 <b className="text-zinc-900">{comma(report.oversoldCount)}</b>
+                · 초과발급 <b className="text-ink">{comma(report.oversoldCount)}</b>
               </>
             )}
           </div>
           {report.status !== 'PENDING' && report.reportUrl && (
             <a
               href={verificationReportCsvUrl(report.id)}
-              className="text-xs text-zinc-500 hover:text-zinc-900 hover:underline ml-auto"
+              className="text-xs text-sub hover:text-ink hover:underline ml-auto"
             >
               CSV 다운로드
             </a>
           )}
         </div>
         {report.status === 'FAILED' && report.failureReason && (
-          <div className="text-xs text-zinc-500 mt-3 border-t border-zinc-100 pt-3">실패 사유: {report.failureReason}</div>
+          <div className="text-xs text-sub mt-3 border-t border-hairline pt-3">실패 사유: {report.failureReason}</div>
         )}
         {report.status === 'PENDING' && (
-          <div className="text-xs text-zinc-400 mt-3 border-t border-zinc-100 pt-3">검증이 아직 진행 중이에요 — 자동으로 갱신됩니다</div>
+          <div className="text-xs text-sub mt-3 border-t border-hairline pt-3">검증이 아직 진행 중이에요 — 자동으로 갱신됩니다</div>
         )}
       </Card>
 
       {report.status === 'MISMATCH_FOUND' && (
         <div className="flex flex-col gap-3">
-          <div className="text-sm font-semibold text-zinc-900">불일치 목록</div>
+          <div className="text-sm font-semibold text-ink">불일치 목록</div>
 
           <DataTable
             rowKey={(r) => `${r.userId ?? 'policy'}-${r.couponIssueId ?? '-'}-${r.discrepancyType}`}
@@ -115,7 +115,7 @@ export default function AdminVerificationReportDetailPage() {
             onChange={setPage}
           />
 
-          <div className="text-[11px] text-zinc-400">
+          <div className="text-[11px] text-sub">
             이 불일치는 재처리 큐(reconciliation)에 자동으로 등록되지 않아요 — 재처리 큐는 카프카 발행/소비
             실패 이벤트만 별도로 쌓는 구조라서, 여기서 잡힌 불일치는 수동으로 원인을 확인하고 필요하면 직접
             재처리를 접수해야 해요.

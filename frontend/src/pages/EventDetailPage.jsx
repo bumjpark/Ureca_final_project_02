@@ -74,7 +74,7 @@ export default function EventDetailPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <Link to="/events" className="text-[13px] text-zinc-500">
+      <Link to="/events" className="text-[13px] text-sub">
         &lt; 목록으로
       </Link>
 
@@ -82,11 +82,11 @@ export default function EventDetailPage() {
         <Badge tone={closed ? 'done' : isOpen ? 'live' : 'soon'}>
           {closed ? '마감' : isOpen ? '진행중' : '오픈 예정'}
         </Badge>
-        <div className="text-[22px] font-bold text-zinc-900 mt-2.5">{policy.title}</div>
+        <div className="text-[22px] font-bold text-ink mt-2.5">{policy.title}</div>
       </div>
 
       <div className="flex gap-4">
-        <div className="flex-[1.2] border border-zinc-300 rounded-lg px-4">
+        <div className="flex-[1.2] border border-line rounded-lg px-4">
           <FieldRow label="할인 내용" value={discountLabel(policy.couponType, policy.discountValue)} />
           <FieldRow label="총 발행 수량" value={`${comma(policy.totalQuantity)}장`} />
           <FieldRow label="오픈 일시" value={fmtDateTime(policy.openAt)} />
@@ -95,9 +95,9 @@ export default function EventDetailPage() {
 
         <div className="flex-1 flex flex-col gap-4">
           {!isOpen && !closed && (
-            <div className="border border-dashed border-zinc-300 rounded-lg p-6 text-center">
-              <div className="text-xs text-zinc-400 mb-2">오픈까지 남은 시간</div>
-              <div className="text-3xl font-bold text-zinc-900 tracking-wide">{fmtCountdown(remainMs)}</div>
+            <div className="border border-dashed border-line rounded-lg p-6 text-center">
+              <div className="text-xs text-sub mb-2">오픈까지 남은 시간</div>
+              <div className="text-3xl font-bold text-ink tracking-wide">{fmtCountdown(remainMs)}</div>
             </div>
           )}
           <Button className="py-4" disabled={!isOpen || closed || joining} onClick={handleJoin}>

@@ -33,12 +33,12 @@ export default function MyCouponsPage() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <div className="text-[22px] font-bold text-zinc-900">내 쿠폰함</div>
+        <div className="text-[22px] font-bold text-ink">내 쿠폰함</div>
         <div className="flex gap-5 text-[13px]">
-          <Link to="/events" className="text-zinc-500 hover:text-zinc-900">
+          <Link to="/events" className="text-sub hover:text-ink">
             홈
           </Link>
-          <span className="text-zinc-900 font-semibold">내 쿠폰함</span>
+          <span className="text-ink font-semibold">내 쿠폰함</span>
         </div>
       </div>
 
@@ -67,7 +67,7 @@ export default function MyCouponsPage() {
               key: 'title',
               label: '쿠폰명',
               render: (r) => (
-                <Link to={`/my-coupons/${r.couponIssueId}`} className="font-semibold text-zinc-900 hover:underline">
+                <Link to={`/my-coupons/${r.couponIssueId}`} className="font-semibold text-ink hover:underline">
                   {r.title}
                 </Link>
               ),

@@ -61,7 +61,7 @@ export function ReconciliationPanel({ policyId = null }) {
                 setType(e.target.value);
                 setPage(0);
               }}
-              className="border border-zinc-300 rounded-md px-3 py-2 text-[13px]"
+              className="border border-line rounded-md px-3 py-2 text-[13px]"
             >
               <option value="">전체 유형</option>
               {TYPES.map((t) => (
@@ -76,7 +76,7 @@ export function ReconciliationPanel({ policyId = null }) {
                 setStatus(e.target.value);
                 setPage(0);
               }}
-              className="border border-zinc-300 rounded-md px-3 py-2 text-[13px]"
+              className="border border-line rounded-md px-3 py-2 text-[13px]"
             >
               <option value="">전체 상태</option>
               {STATUSES.map((s) => (
@@ -108,7 +108,7 @@ export function ReconciliationPanel({ policyId = null }) {
             label: '',
             render: (r) =>
               r.status !== 'SUCCESS' ? (
-                <button className="text-xs text-zinc-500 hover:text-zinc-900 hover:underline" onClick={() => retryOne(r.id)}>
+                <button className="text-xs text-sub hover:text-ink hover:underline" onClick={() => retryOne(r.id)}>
                   재처리
                 </button>
               ) : null,
@@ -125,10 +125,10 @@ export function ReconciliationPanel({ policyId = null }) {
       />
 
       {policyId && (
-        <div className="text-[11px] text-zinc-400">
+        <div className="text-[11px] text-sub">
           이 정책의 발급 건과 연결된 로그만 보여요. coupon_issue와 안 묶이는 일부 로그(예: Redis 완전 유실
           복구)까지 보려면{' '}
-          <Link to="/admin/reconciliation" className="text-zinc-600 underline underline-offset-2">
+          <Link to="/admin/reconciliation" className="text-sub underline underline-offset-2">
             전체 재처리 화면
           </Link>
           에서 확인하세요.

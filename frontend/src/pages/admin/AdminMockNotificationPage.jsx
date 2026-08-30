@@ -93,7 +93,7 @@ export default function AdminMockNotificationPage() {
 
       <div className="grid grid-cols-2 gap-4">
         <Card>
-          <div className="text-sm font-semibold text-zinc-900 mb-3">단건 발송</div>
+          <div className="text-sm font-semibold text-ink mb-3">단건 발송</div>
           <form onSubmit={submitSingle} className="flex flex-col gap-3">
             <input
               required
@@ -101,14 +101,14 @@ export default function AdminMockNotificationPage() {
               placeholder="userId"
               value={single.userId}
               onChange={setSingleField('userId')}
-              className="border border-zinc-300 rounded-md px-3 py-2.5 text-sm"
+              className="border border-line rounded-md px-3 py-2.5 text-sm"
             />
             <input
               required
               placeholder="templateId"
               value={single.templateId}
               onChange={setSingleField('templateId')}
-              className="border border-zinc-300 rounded-md px-3 py-2.5 text-sm"
+              className="border border-line rounded-md px-3 py-2.5 text-sm"
             />
             <textarea
               required
@@ -116,9 +116,9 @@ export default function AdminMockNotificationPage() {
               placeholder="message"
               value={single.message}
               onChange={setSingleField('message')}
-              className="border border-zinc-300 rounded-md px-3 py-2.5 text-sm resize-none"
+              className="border border-line rounded-md px-3 py-2.5 text-sm resize-none"
             />
-            <label className="flex items-center gap-2 text-xs text-zinc-500">
+            <label className="flex items-center gap-2 text-xs text-sub">
               <input type="checkbox" checked={simulateFailure} onChange={(e) => setSimulateFailure(e.target.checked)} />
               강제 실패 시뮬레이션
             </label>
@@ -130,14 +130,14 @@ export default function AdminMockNotificationPage() {
         </Card>
 
         <Card>
-          <div className="text-sm font-semibold text-zinc-900 mb-1">정책별 일괄 발송</div>
-          <div className="text-xs text-zinc-400 mb-3">그 정책으로 쿠폰을 발급받은 유저 전원에게 보내요</div>
+          <div className="text-sm font-semibold text-ink mb-1">정책별 일괄 발송</div>
+          <div className="text-xs text-sub mb-3">그 정책으로 쿠폰을 발급받은 유저 전원에게 보내요</div>
           <form onSubmit={submitBulk} className="flex flex-col gap-3">
             <select
               required
               value={bulk.policyId}
               onChange={setBulkField('policyId')}
-              className="border border-zinc-300 rounded-md px-3 py-2.5 text-sm"
+              className="border border-line rounded-md px-3 py-2.5 text-sm"
             >
               <option value="">정책 선택</option>
               {(policiesQ.data?.content ?? []).map((p) => (
@@ -151,7 +151,7 @@ export default function AdminMockNotificationPage() {
               placeholder="templateId"
               value={bulk.templateId}
               onChange={setBulkField('templateId')}
-              className="border border-zinc-300 rounded-md px-3 py-2.5 text-sm"
+              className="border border-line rounded-md px-3 py-2.5 text-sm"
             />
             <textarea
               required
@@ -159,13 +159,13 @@ export default function AdminMockNotificationPage() {
               placeholder="message"
               value={bulk.message}
               onChange={setBulkField('message')}
-              className="border border-zinc-300 rounded-md px-3 py-2.5 text-sm resize-none"
+              className="border border-line rounded-md px-3 py-2.5 text-sm resize-none"
             />
             <InlineError message={bulkError} />
             {bulkResult && (
-              <div className="text-xs text-zinc-500 border border-zinc-200 rounded-md p-2.5">
+              <div className="text-xs text-sub border border-line rounded-md p-2.5">
                 정책 #{bulkResult.policyId} 수신자 {bulkResult.targetCount}명에게 발송을 접수했어요 — 아래{' '}
-                <b className="text-zinc-700">정책별 발송 현황</b>에서 진행 상황을 확인하세요
+                <b className="text-ink">정책별 발송 현황</b>에서 진행 상황을 확인하세요
               </div>
             )}
             <Button type="submit" disabled={bulkBusy} className="w-fit">
@@ -178,8 +178,8 @@ export default function AdminMockNotificationPage() {
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-sm font-semibold text-zinc-900">정책별 발송 현황</div>
-            <div className="text-xs text-zinc-400 mt-0.5">정책별로 일괄 발송이 진행 중인지, 일부만 끝났는지 확인해요</div>
+            <div className="text-sm font-semibold text-ink">정책별 발송 현황</div>
+            <div className="text-xs text-sub mt-0.5">정책별로 일괄 발송이 진행 중인지, 일부만 끝났는지 확인해요</div>
           </div>
           <select
             value={jobPolicyFilter}
@@ -187,7 +187,7 @@ export default function AdminMockNotificationPage() {
               setJobPolicyFilter(e.target.value);
               setJobPage(0);
             }}
-            className="border border-zinc-300 rounded-md px-3 py-2 text-[13px]"
+            className="border border-line rounded-md px-3 py-2 text-[13px]"
           >
             <option value="">전체 정책</option>
             {(policiesQ.data?.content ?? []).map((p) => (
@@ -217,7 +217,7 @@ export default function AdminMockNotificationPage() {
                 const pct = r.targetCount > 0 ? Math.round((done / r.targetCount) * 100) : 100;
                 return (
                   <div className="flex flex-col gap-1 min-w-[140px]">
-                    <div className="flex justify-between text-[11px] text-zinc-500">
+                    <div className="flex justify-between text-[11px] text-sub">
                       <span>
                         {comma(done)} / {comma(r.targetCount)}
                       </span>
@@ -225,9 +225,9 @@ export default function AdminMockNotificationPage() {
                         성공 {comma(r.sentCount)} · 실패 {comma(r.failedCount)}
                       </span>
                     </div>
-                    <div className="h-1.5 bg-zinc-100 rounded-full overflow-hidden">
+                    <div className="h-1.5 bg-surface rounded-full overflow-hidden">
                       <div
-                        className={`h-full ${r.failedCount > 0 ? 'bg-zinc-500' : 'bg-zinc-900'}`}
+                        className={`h-full ${r.failedCount > 0 ? 'bg-danger' : 'bg-mint'}`}
                         style={{ width: `${pct}%` }}
                       />
                     </div>
@@ -251,14 +251,14 @@ export default function AdminMockNotificationPage() {
 
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
-          <div className="text-sm font-semibold text-zinc-900">발송 이력</div>
+          <div className="text-sm font-semibold text-ink">발송 이력</div>
           <select
             value={logPolicyFilter}
             onChange={(e) => {
               setLogPolicyFilter(e.target.value);
               setPage(0);
             }}
-            className="border border-zinc-300 rounded-md px-3 py-2 text-[13px]"
+            className="border border-line rounded-md px-3 py-2 text-[13px]"
           >
             <option value="">전체</option>
             {(policiesQ.data?.content ?? []).map((p) => (

@@ -53,24 +53,24 @@ export default function CouponUsePage() {
   };
 
   if (q.isLoading) return <LoadingBlock />;
-  if (q.isError) return <div className="text-sm text-zinc-400 py-16 text-center">쿠폰을 찾을 수 없어요</div>;
+  if (q.isError) return <div className="text-sm text-sub py-16 text-center">쿠폰을 찾을 수 없어요</div>;
 
   const c = q.data;
   const status = c.displayStatus;
 
   return (
     <div className="flex flex-col gap-5">
-      <Link to="/my-coupons" className="text-[13px] text-zinc-500">
+      <Link to="/my-coupons" className="text-[13px] text-sub">
         &lt; 내 쿠폰함
       </Link>
 
       <div>
         <Badge tone={BADGE[status]}>{LABEL[status]}</Badge>
-        <div className="text-xl font-bold text-zinc-900 mt-2.5">{c.title}</div>
+        <div className="text-xl font-bold text-ink mt-2.5">{c.title}</div>
       </div>
 
       <div className="flex gap-4">
-        <div className="flex-[1.2] border border-zinc-300 rounded-lg px-4 self-start">
+        <div className="flex-[1.2] border border-line rounded-lg px-4 self-start">
           <FieldRow label="할인 내용" value={discountLabel(c.couponType, c.discountValue)} />
           <FieldRow label="발급 일시" value={fmtDateTime(c.issuedAt)} />
           <FieldRow label="쿠폰 ID" value={<span className="font-mono">#{c.couponIssueId}</span>} />
@@ -81,21 +81,21 @@ export default function CouponUsePage() {
             사용하기
           </Button>
 
-          <Link to={`/my-coupons/${couponIssueId}/history`} className="text-xs text-zinc-500 underline underline-offset-2">
+          <Link to={`/my-coupons/${couponIssueId}/history`} className="text-xs text-sub underline underline-offset-2">
             이력 보기
           </Link>
 
           <InlineError message={error} />
 
-          <div className={`border border-zinc-200 rounded-md p-3.5 ${status !== 'USED' ? 'opacity-50' : ''}`}>
-            <div className="text-xs text-zinc-500 mb-2">사용취소 사유</div>
+          <div className={`border border-line rounded-md p-3.5 ${status !== 'USED' ? 'opacity-50' : ''}`}>
+            <div className="text-xs text-sub mb-2">사용취소 사유</div>
             <textarea
               rows={2}
               placeholder="사유를 입력해주세요"
               disabled={status !== 'USED' || busy}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              className="w-full box-border border border-zinc-300 rounded-md p-2.5 text-[13px] resize-none"
+              className="w-full box-border border border-line rounded-md p-2.5 text-[13px] resize-none"
             />
             <Button
               variant="outline"

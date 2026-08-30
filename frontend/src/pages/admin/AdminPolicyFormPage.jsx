@@ -72,26 +72,26 @@ export default function AdminPolicyFormPage() {
       <PageHeader title={editing ? `정책 #${policyId} 수정` : '신규 정책 생성'} />
 
       <form onSubmit={submit} className="flex flex-col gap-4">
-        <label className="flex flex-col gap-1.5 text-sm text-zinc-600">
+        <label className="flex flex-col gap-1.5 text-sm text-ink">
           제목
           <input
             required
             maxLength={100}
             value={form.title}
             onChange={set('title')}
-            className="border border-zinc-300 rounded-md px-3 py-2.5 text-sm"
+            className="border border-line rounded-md px-3 py-2.5 text-sm"
           />
         </label>
 
         <div className="flex gap-4">
-          <label className="flex-1 flex flex-col gap-1.5 text-sm text-zinc-600">
+          <label className="flex-1 flex flex-col gap-1.5 text-sm text-ink">
             할인 유형
-            <select value={form.couponType} onChange={set('couponType')} className="border border-zinc-300 rounded-md px-3 py-2.5 text-sm">
+            <select value={form.couponType} onChange={set('couponType')} className="border border-line rounded-md px-3 py-2.5 text-sm">
               <option value="FIXED">FIXED (정액)</option>
               <option value="RATE">RATE (정률, 1~100)</option>
             </select>
           </label>
-          <label className="flex-1 flex flex-col gap-1.5 text-sm text-zinc-600">
+          <label className="flex-1 flex flex-col gap-1.5 text-sm text-ink">
             할인 값
             <input
               required
@@ -99,12 +99,12 @@ export default function AdminPolicyFormPage() {
               min="1"
               value={form.discountValue}
               onChange={set('discountValue')}
-              className="border border-zinc-300 rounded-md px-3 py-2.5 text-sm"
+              className="border border-line rounded-md px-3 py-2.5 text-sm"
             />
           </label>
         </div>
 
-        <label className="flex flex-col gap-1.5 text-sm text-zinc-600">
+        <label className="flex flex-col gap-1.5 text-sm text-ink">
           총 발행 수량
           <input
             required
@@ -112,28 +112,28 @@ export default function AdminPolicyFormPage() {
             min="1"
             value={form.totalQuantity}
             onChange={set('totalQuantity')}
-            className="border border-zinc-300 rounded-md px-3 py-2.5 text-sm"
+            className="border border-line rounded-md px-3 py-2.5 text-sm"
           />
         </label>
 
         <div className="flex gap-4">
-          <label className="flex-1 flex flex-col gap-1.5 text-sm text-zinc-600">
+          <label className="flex-1 flex flex-col gap-1.5 text-sm text-ink">
             오픈 일시
             <input
               required
               type="datetime-local"
               value={form.openAt}
               onChange={set('openAt')}
-              className="border border-zinc-300 rounded-md px-3 py-2.5 text-sm"
+              className="border border-line rounded-md px-3 py-2.5 text-sm"
             />
           </label>
-          <label className="flex-1 flex flex-col gap-1.5 text-sm text-zinc-600">
+          <label className="flex-1 flex flex-col gap-1.5 text-sm text-ink">
             마감 일시 (선택)
             <input
               type="datetime-local"
               value={form.closeAt}
               onChange={set('closeAt')}
-              className="border border-zinc-300 rounded-md px-3 py-2.5 text-sm"
+              className="border border-line rounded-md px-3 py-2.5 text-sm"
             />
           </label>
         </div>

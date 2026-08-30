@@ -87,7 +87,7 @@ export function VerificationPanel({ policyId = null }) {
                 policies={policiesQ.data?.content}
               />
             )}
-            <label className="flex items-center gap-1.5 text-xs text-zinc-500">
+            <label className="flex items-center gap-1.5 text-xs text-sub">
               <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} />
               강제 실행
             </label>
@@ -102,24 +102,24 @@ export function VerificationPanel({ policyId = null }) {
 
       {policyId && (
         <Card>
-          <div className="text-xs text-zinc-400 mb-2">최신 리포트</div>
+          <div className="text-xs text-sub mb-2">최신 리포트</div>
           {latest ? (
             <div className="flex items-center gap-6">
               <Badge tone={STATUS_TONE[latest.status]}>{STATUS_LABEL[latest.status]}</Badge>
-              <div className="text-sm text-zinc-700">
+              <div className="text-sm text-ink">
                 DB 발급 <b>{comma(latest.totalIssued)}</b> · Redis 예약 <b>{comma(latest.totalReserved)}</b> · 불일치{' '}
-                <b className={latest.mismatchCount > 0 ? 'text-zinc-900' : ''}>{comma(latest.mismatchCount)}</b>
+                <b className={latest.mismatchCount > 0 ? 'text-ink' : ''}>{comma(latest.mismatchCount)}</b>
               </div>
               <Link
                 to={`/admin/verification/reports/${latest.id}`}
-                className="text-xs text-zinc-500 hover:text-zinc-900 hover:underline"
+                className="text-xs text-sub hover:text-ink hover:underline"
               >
                 상세
               </Link>
-              <div className="text-xs text-zinc-400 ml-auto">{fmtDateTime(latest.runAt)}</div>
+              <div className="text-xs text-sub ml-auto">{fmtDateTime(latest.runAt)}</div>
             </div>
           ) : (
-            <div className="text-xs text-zinc-400">아직 실행된 검증이 없어요 — 위 버튼으로 실행해보세요</div>
+            <div className="text-xs text-sub">아직 실행된 검증이 없어요 — 위 버튼으로 실행해보세요</div>
           )}
         </Card>
       )}
@@ -144,12 +144,12 @@ export function VerificationPanel({ policyId = null }) {
             render: (r) => (
               <div className="flex gap-3">
                 {r.status !== 'PENDING' && (
-                  <Link to={`/admin/verification/reports/${r.id}`} className="text-xs text-zinc-500 hover:text-zinc-900 hover:underline">
+                  <Link to={`/admin/verification/reports/${r.id}`} className="text-xs text-sub hover:text-ink hover:underline">
                     상세
                   </Link>
                 )}
                 {r.status !== 'PENDING' && r.reportUrl && (
-                  <a href={verificationReportCsvUrl(r.id)} className="text-xs text-zinc-500 hover:text-zinc-900 hover:underline">
+                  <a href={verificationReportCsvUrl(r.id)} className="text-xs text-sub hover:text-ink hover:underline">
                     CSV
                   </a>
                 )}
@@ -167,12 +167,12 @@ export function VerificationPanel({ policyId = null }) {
         onChange={setPage}
       />
 
-      <div className="text-[11px] text-zinc-400">
+      <div className="text-[11px] text-sub">
         "상세"에서 CSV 다운로드 없이 실행 결과와(불일치가 있다면) 그 목록을 바로 확인할 수 있어요
         {policyId && (
           <>
             {' '}· 등록된 모든 정책을 한 번에 검증하려면{' '}
-            <Link to="/admin/verification" className="text-zinc-600 underline underline-offset-2">
+            <Link to="/admin/verification" className="text-sub underline underline-offset-2">
               전체 정합성 검증
             </Link>
             에서 실행하세요.

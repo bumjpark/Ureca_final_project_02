@@ -5,7 +5,7 @@ export default function PolicyPicker({ value, onChange, policies, allowAll = fal
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className={`border border-zinc-300 rounded-md px-3 py-2 text-[13px] ${className}`}
+      className={`border border-line rounded-md px-3 py-2 text-[13px] ${className}`}
     >
       {allowAll && <option value="">전체 정책</option>}
       {!allowAll && value === '' && <option value="">정책 선택</option>}

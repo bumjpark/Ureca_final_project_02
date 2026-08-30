@@ -63,14 +63,14 @@ export default function AdminPolicyListPage() {
             key: 'actions',
             label: '',
             render: (r) => (
-              <div className="flex gap-3 text-xs text-zinc-500">
-                <button className="hover:text-zinc-900 hover:underline" onClick={() => navigate(`/admin/${r.id}`)}>
+              <div className="flex gap-3 text-xs text-sub">
+                <button className="hover:text-ink hover:underline" onClick={() => navigate(`/admin/${r.id}`)}>
                   현황
                 </button>
-                <button className="hover:text-zinc-900 hover:underline" onClick={() => navigate(`/admin/${r.id}/edit`)}>
+                <button className="hover:text-ink hover:underline" onClick={() => navigate(`/admin/${r.id}/edit`)}>
                   수정
                 </button>
-                <button className="hover:text-zinc-900 hover:underline" onClick={() => remove(r.id)}>
+                <button className="hover:text-ink hover:underline" onClick={() => remove(r.id)}>
                   삭제
                 </button>
               </div>

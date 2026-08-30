@@ -89,36 +89,36 @@ export default function QueueWaitPage() {
 
   return (
     <div className="flex flex-col items-center justify-center gap-6 text-center py-10">
-      <div className="text-sm text-zinc-600">현재 접속량이 많아 순서대로 안내드리고 있어요</div>
+      <div className="text-sm text-sub">현재 접속량이 많아 순서대로 안내드리고 있어요</div>
 
       <div className="flex gap-4 w-[560px]">
-        <div className="flex-1 border border-zinc-300 rounded-lg p-7">
-          <div className="text-xs text-zinc-400 mb-2">나의 대기 순번</div>
-          <div className="text-4xl font-bold text-zinc-900">
-            {comma(status.rank)} <span className="text-base text-zinc-400 font-normal">번</span>
+        <div className="flex-1 border border-line rounded-lg p-7">
+          <div className="text-xs text-sub mb-2">나의 대기 순번</div>
+          <div className="text-4xl font-bold text-ink">
+            {comma(status.rank)} <span className="text-base text-sub font-normal">번</span>
           </div>
         </div>
-        <div className="flex-1 border border-zinc-300 rounded-lg p-5 flex flex-col justify-center gap-4 text-left">
+        <div className="flex-1 border border-line rounded-lg p-5 flex flex-col justify-center gap-4 text-left">
           <div className="flex justify-between items-baseline">
-            <span className="text-[11px] text-zinc-400">예상 대기시간</span>
-            <span className="text-[15px] font-semibold text-zinc-900">
+            <span className="text-[11px] text-sub">예상 대기시간</span>
+            <span className="text-[15px] font-semibold text-ink">
               약 {Math.ceil((status.estimatedWaitSeconds || 0) / 60)}분
             </span>
           </div>
           <div className="flex justify-between items-baseline">
-            <span className="text-[11px] text-zinc-400">앞에 대기중</span>
-            <span className="text-[15px] font-semibold text-zinc-900">{comma(status.rank)}명</span>
+            <span className="text-[11px] text-sub">앞에 대기중</span>
+            <span className="text-[15px] font-semibold text-ink">{comma(status.rank)}명</span>
           </div>
         </div>
       </div>
 
-      <div className="text-xs text-zinc-500">
-        <span className="inline-block w-1.5 h-1.5 rounded-full bg-zinc-900 mr-1.5 align-middle" />
+      <div className="text-xs text-sub">
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-ink mr-1.5 align-middle" />
         자동으로 순번을 확인하고 있어요
       </div>
 
-      <div className="border border-dashed border-zinc-300 rounded-md px-4 py-3 text-[11px] text-zinc-400 leading-relaxed w-[560px] text-left">
-        <b className="text-zinc-600">주의</b> 새로고침하거나 뒤로가기를 하면 대기 순번이 초기화될 수 있습니다. 이 화면을 그대로 유지해주세요.
+      <div className="border border-dashed border-line rounded-md px-4 py-3 text-[11px] text-sub leading-relaxed w-[560px] text-left">
+        <b className="text-ink">주의</b> 새로고침하거나 뒤로가기를 하면 대기 순번이 초기화될 수 있습니다. 이 화면을 그대로 유지해주세요.
       </div>
     </div>
   );

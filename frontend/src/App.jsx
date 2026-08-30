@@ -39,15 +39,15 @@ function TopBar() {
   const navigate = useNavigate();
 
   return (
-    <header className="border-b border-zinc-200 bg-white">
+    <header className="border-b border-line bg-white">
       <div className="mx-auto max-w-[1100px] px-6 h-12 flex items-center justify-between">
-        <span className="font-bold text-[15px] text-zinc-900">쿠폰 발급 시스템</span>
-        <div className="flex items-center gap-4 text-xs text-zinc-500">
+        <span className="font-bold text-[15px] text-ink">쿠폰 발급 시스템</span>
+        <div className="flex items-center gap-4 text-xs text-sub">
           {role === 'user' && userId && <span>사용자 · id {userId}</span>}
           {role === 'admin' && <span>관리자</span>}
           {role && (
             <button
-              className="text-zinc-400 hover:text-zinc-700 underline underline-offset-2"
+              className="text-sub hover:text-ink underline underline-offset-2"
               onClick={() => {
                 reset();
                 navigate('/');
@@ -65,7 +65,7 @@ function TopBar() {
 function AdminSubNav({ current }) {
   return (
     <div className="mx-auto max-w-[1100px] px-6 pt-4">
-      <div className="flex gap-1 border-b border-zinc-200">
+      <div className="flex gap-1 border-b border-line">
         {ADMIN_NAV.map((n) => (
           <a
             key={n.to}
@@ -76,8 +76,8 @@ function AdminSubNav({ current }) {
             }}
             className={`text-[13px] px-4 py-2.5 border-b-2 -mb-px ${
               current.path === n.to
-                ? 'text-zinc-900 font-semibold border-zinc-900'
-                : 'text-zinc-400 border-transparent hover:text-zinc-600'
+                ? 'text-ink font-semibold border-ink'
+                : 'text-sub border-transparent hover:text-ink'
             }`}
           >
             {n.label}
@@ -233,7 +233,7 @@ export default function App() {
           />
         ))}
 
-        <Route path="*" element={<UserShell><p className="text-sm text-zinc-400">없는 화면이에요.</p></UserShell>} />
+        <Route path="*" element={<UserShell><p className="text-sm text-sub">없는 화면이에요.</p></UserShell>} />
       </Routes>
     </div>
   );

@@ -41,7 +41,7 @@ export default function UserSelectPage() {
 
   return (
     <main className="mx-auto w-full max-w-[640px] px-6 py-8">
-      <button className="text-[13px] text-zinc-500 mb-4" onClick={() => navigate('/')}>
+      <button className="text-[13px] text-sub mb-4" onClick={() => navigate('/')}>
         &lt; 역할 선택
       </button>
 
@@ -56,7 +56,7 @@ export default function UserSelectPage() {
             setSelected(null);
           }}
           placeholder="이름 또는 이메일로 검색 (비워두면 전체 목록)"
-          className="border border-zinc-300 rounded-md px-3 py-2.5 text-sm"
+          className="border border-line rounded-md px-3 py-2.5 text-sm"
         />
 
         {q.isLoading && <LoadingBlock />}

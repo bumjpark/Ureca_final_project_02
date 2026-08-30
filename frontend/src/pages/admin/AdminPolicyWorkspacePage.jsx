@@ -7,7 +7,7 @@ import {
   listReconciliationLogs,
 } from '../../lib/endpoints.js';
 import { useAdminPolicies } from '../../lib/hooks.js';
-import { LoadingBlock, PageHeader, StatTile, Tabs } from '../../components/ui.jsx';
+import { Badge, Card, LoadingBlock, PageHeader, ProgressBar, StatTile, Tabs } from '../../components/ui.jsx';
 import IssuanceChart from '../../components/IssuanceChart.jsx';
 import PolicyPicker from '../../components/admin/PolicyPicker.jsx';
 import InfraStatusBar from '../../components/admin/InfraStatusBar.jsx';
@@ -49,43 +49,73 @@ function StatusTab({ policyId }) {
   if (statusQ.isLoading) return <LoadingBlock />;
   if (!s) return null;
 
-  return (
-    <div className="flex gap-4">
-      <div className="flex-[1.3] border border-zinc-300 rounded-lg p-5">
-        <div className="flex justify-between text-xs text-zinc-400 mb-2">
-          <span>발급률</span>
-          <span>{rate}%</span>
-        </div>
-        <div className="h-3.5 bg-zinc-100 rounded-full overflow-hidden">
-          <div className="h-full bg-zinc-900" style={{ width: `${Math.min(100, rate)}%` }} />
-        </div>
-        <div className="flex justify-between text-[11px] text-zinc-400 mt-2">
-          <span>0</span>
-          <span>{comma(s.totalQuantity)}장</span>
-        </div>
+  const soldOut = s.remainingQuantity === 0;
 
-        <div className="flex gap-3 mt-4">
-          <StatTile label="발급 완료" value={comma(s.issuedQuantity)} />
-          <StatTile label="잔여 수량" value={comma(s.remainingQuantity)} />
-          <StatTile label="총 발행 수량" value={comma(s.totalQuantity)} />
-        </div>
-        <div className="flex gap-3 mt-3">
-          <StatTile label="사용 완료" value={m ? comma(m.usedCount) : '-'} />
-          <StatTile label="만료" value={m ? comma(m.expiredCount) : '-'} />
-          <StatTile label="초당 발급 속도" value={m ? `${comma(m.issuedLastSecond)}건/초` : '-'} />
-        </div>
-        <div className="mt-3">
-          <StatTile label="예상 소진 시점(현재 속도 기준)" value={etaLabel} />
-        </div>
+  return (
+    <div className="space-y-4">
+      {/* KPI — dev 대시보드처럼 큰 숫자가 주인공. 재고 소진이면 레드로 전환된다. */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <Kpi label="발급 완료" value={comma(s.issuedQuantity)} sub={`총 ${comma(s.totalQuantity)}장`} tone="mint" hero />
+        <Kpi
+          label="잔여 수량"
+          value={comma(s.remainingQuantity)}
+          sub={soldOut ? '재고 소진' : `발급률 ${rate}%`}
+          tone={soldOut ? 'danger' : 'plain'}
+        />
+        <Kpi label="초당 발급 속도" value={m ? `${comma(m.issuedLastSecond)}` : '-'} sub="건/초 · 직전 1초" />
+        <Kpi label="예상 소진 시점" value={etaLabel} sub="현재 속도 기준" small />
       </div>
 
-      <div className="flex-1 border border-zinc-300 rounded-lg p-4">
-        <div className="text-xs text-zinc-500 font-semibold mb-1">
-          실시간 발급 추이 <span className="text-zinc-400 font-normal">(최근 {TIMELINE_SECONDS}초, 1초 단위)</span>
+      {/* 발급률 진행바 */}
+      <Card className="p-5">
+        <div className="flex items-end justify-between mb-2">
+          <div>
+            <p className="text-[12px] font-bold text-sub">발급률</p>
+            <p className="mt-1 text-[15px] font-bold text-ink nums">
+              {comma(s.issuedQuantity)} / {comma(s.totalQuantity)}장
+            </p>
+          </div>
+          <span className={`text-[28px] font-extrabold nums ${soldOut ? 'text-danger' : 'text-mint'}`}>{rate}%</span>
         </div>
-        {metricsQ.isLoading ? <LoadingBlock label="그래프 불러오는 중..." /> : <IssuanceChart points={m?.timeline ?? []} />}
+        <ProgressBar value={s.issuedQuantity} max={s.totalQuantity} tone={soldOut ? 'danger' : 'mint'} />
+      </Card>
+
+      {/* 실시간 추이 */}
+      <Card className="p-5">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-[15px] font-bold text-ink">실시간 발급 추이</h2>
+          <Badge tone={soldOut ? 'done' : 'live'}>{soldOut ? '소진 · 정지' : '발급 중'}</Badge>
+        </div>
+        <p className="text-[12px] text-sub mb-3">최근 {TIMELINE_SECONDS}초, 1초 단위 확정 건수</p>
+        {metricsQ.isLoading ? (
+          <LoadingBlock label="그래프 불러오는 중..." />
+        ) : (
+          <IssuanceChart points={m?.timeline ?? []} />
+        )}
+      </Card>
+
+      {/* 부가 지표 */}
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+        <StatTile label="사용 완료" value={m ? comma(m.usedCount) : '-'} />
+        <StatTile label="만료" value={m ? comma(m.expiredCount) : '-'} />
+        <StatTile label="총 발행 수량" value={comma(s.totalQuantity)} />
       </div>
     </div>
+  );
+}
+
+// dev 대시보드의 KPI 카드 — 라벨은 작게, 숫자가 주인공(nums로 자릿수 흔들림 방지).
+function Kpi({ label, value, sub, tone = 'plain', hero, small }) {
+  const color = tone === 'mint' ? 'text-mint' : tone === 'danger' ? 'text-danger' : 'text-ink';
+  const ring = hero ? `ring-1 ring-inset ${tone === 'danger' ? 'ring-danger' : 'ring-mint'}` : '';
+  return (
+    <Card className={`p-5 ${ring}`}>
+      <p className="text-[12px] font-bold text-sub">{label}</p>
+      <p className={`mt-2 ${small ? 'text-[22px]' : 'text-[36px]'} leading-none font-extrabold nums ${color}`}>
+        {value}
+      </p>
+      <p className="mt-2 text-[12px] text-sub">{sub}</p>
+    </Card>
   );
 }
 

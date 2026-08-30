@@ -40,10 +40,10 @@ export default function EventListPage() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center justify-between">
-        <div className="text-[22px] font-bold text-zinc-900">쿠폰 이벤트</div>
+        <div className="text-[22px] font-bold text-ink">쿠폰 이벤트</div>
         <div className="flex gap-5 text-[13px]">
-          <span className="text-zinc-900 font-semibold">홈</span>
-          <Link to="/my-coupons" className="text-zinc-500 hover:text-zinc-900">
+          <span className="text-ink font-semibold">홈</span>
+          <Link to="/my-coupons" className="text-sub hover:text-ink">
             내 쿠폰함 &gt;
           </Link>
         </div>
@@ -51,7 +51,7 @@ export default function EventListPage() {
 
       {q.isLoading && <LoadingBlock />}
       {q.data && q.data.items.length === 0 && (
-        <div className="text-sm text-zinc-400 py-16 text-center">등록된 쿠폰 이벤트가 없어요</div>
+        <div className="text-sm text-sub py-16 text-center">등록된 쿠폰 이벤트가 없어요</div>
       )}
 
       <div className="grid grid-cols-3 gap-4">
@@ -60,14 +60,14 @@ export default function EventListPage() {
           const remain = p.status ? `잔여 ${comma(p.status.remainingQuantity)} / ${comma(p.status.totalQuantity)}` : `총 ${comma(p.totalQuantity)}장`;
           return (
             <Link key={p.id} to={`/events/${p.id}`}>
-              <Card className={`flex flex-col hover:border-zinc-500 transition-colors ${badge.tone === 'done' ? 'opacity-70' : ''}`}>
+              <Card className={`flex flex-col hover:border-mint transition-colors ${badge.tone === 'done' ? 'opacity-70' : ''}`}>
                 <div className="flex items-center justify-between mb-2.5">
                   <Badge tone={badge.tone}>{badge.label}</Badge>
-                  <span className="text-[11px] text-zinc-400">{remain}</span>
+                  <span className="text-[11px] text-sub">{remain}</span>
                 </div>
-                <div className="text-[15px] font-semibold text-zinc-900 mb-1">{p.title}</div>
-                <div className="text-[13px] text-zinc-600 mb-1.5">{discountLabel(p.couponType, p.discountValue)}</div>
-                <div className="text-xs text-zinc-400">
+                <div className="text-[15px] font-semibold text-ink mb-1">{p.title}</div>
+                <div className="text-[13px] text-sub mb-1.5">{discountLabel(p.couponType, p.discountValue)}</div>
+                <div className="text-xs text-sub">
                   오픈 {fmtDateTime(p.openAt)}
                   {p.closeAt ? ` · 마감 ${fmtDateTime(p.closeAt)}` : ''}
                 </div>

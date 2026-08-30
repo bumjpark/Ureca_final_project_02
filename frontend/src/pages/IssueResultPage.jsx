@@ -61,7 +61,7 @@ export default function IssueResultPage() {
   if (!result) {
     return (
       <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
-        <div className="text-sm text-zinc-500">발급 접수 정보가 없어요. 내 쿠폰함에서 확인해주세요.</div>
+        <div className="text-sm text-sub">발급 접수 정보가 없어요. 내 쿠폰함에서 확인해주세요.</div>
         <Button onClick={() => navigate('/my-coupons')}>내 쿠폰함으로</Button>
       </div>
     );
@@ -72,22 +72,22 @@ export default function IssueResultPage() {
   return (
     <div className="flex flex-col items-center justify-center gap-5 text-center py-14">
       <div>
-        <div className="text-lg font-bold text-zinc-900 mb-1.5">{view.title}</div>
-        <div className="text-sm text-zinc-500">{view.subtitle}</div>
+        <div className="text-lg font-bold text-ink mb-1.5">{view.title}</div>
+        <div className="text-sm text-sub">{view.subtitle}</div>
       </div>
 
-      <div className="border border-zinc-300 rounded-lg p-5 w-[420px] text-left">
-        <div className="text-[11px] text-zinc-400 mb-1">접수번호 (receipt_id)</div>
-        <div className="text-[15px] font-semibold text-zinc-900 font-mono">{result.receiptId}</div>
-        <div className="h-px bg-zinc-100 my-3.5" />
-        <div className="text-[11px] text-zinc-400 mb-1">상태</div>
+      <div className="border border-line rounded-lg p-5 w-[420px] text-left">
+        <div className="text-[11px] text-sub mb-1">접수번호 (receipt_id)</div>
+        <div className="text-[15px] font-semibold text-ink font-mono">{result.receiptId}</div>
+        <div className="h-px bg-surface my-3.5" />
+        <div className="text-[11px] text-sub mb-1">상태</div>
         <div className={`text-sm font-semibold ${view.tone}`}>{view.label}</div>
         {status?.coupon && (
           <>
-            <div className="h-px bg-zinc-100 my-3.5" />
-            <div className="text-[11px] text-zinc-400 mb-1">쿠폰</div>
-            <div className="text-sm font-semibold text-zinc-900">{status.coupon.title}</div>
-            <div className="text-[13px] text-zinc-500 mt-0.5">{status.coupon.discountLabel}</div>
+            <div className="h-px bg-surface my-3.5" />
+            <div className="text-[11px] text-sub mb-1">쿠폰</div>
+            <div className="text-sm font-semibold text-ink">{status.coupon.title}</div>
+            <div className="text-[13px] text-sub mt-0.5">{status.coupon.discountLabel}</div>
           </>
         )}
       </div>
@@ -107,7 +107,7 @@ function describe(status, pollsExhausted, result) {
       title: '쿠폰이 발급되었어요',
       subtitle: '내 쿠폰함에서 바로 사용할 수 있어요',
       label: '발급 완료 (ISSUED)',
-      tone: 'text-emerald-600',
+      tone: 'text-mint',
     };
   }
   if (status?.status === 'FAILED') {
@@ -115,7 +115,7 @@ function describe(status, pollsExhausted, result) {
       title: '발급 처리가 지연되고 있어요',
       subtitle: status.note ?? '재처리 대기 중이에요. 잠시 후 내 쿠폰함에서 다시 확인해주세요.',
       label: '재처리 중 (FAILED)',
-      tone: 'text-amber-600',
+      tone: 'text-danger',
     };
   }
   if (pollsExhausted) {
@@ -123,13 +123,13 @@ function describe(status, pollsExhausted, result) {
       title: '발급 확정이 평소보다 오래 걸리고 있어요',
       subtitle: '접수는 정상적으로 완료됐어요. 잠시 후 내 쿠폰함에서 확인해주세요.',
       label: '처리 지연 (PENDING)',
-      tone: 'text-zinc-600',
+      tone: 'text-sub',
     };
   }
   return {
     title: '발급 요청이 접수되었어요',
     subtitle: '발급이 확정되면 이 화면에 바로 표시돼요',
     label: status ? '처리 중 (PENDING)' : (result.message ?? '처리 중'),
-    tone: 'text-zinc-600',
+    tone: 'text-sub',
   };
 }

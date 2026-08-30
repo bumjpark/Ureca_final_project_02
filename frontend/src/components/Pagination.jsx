@@ -12,7 +12,7 @@ export default function Pagination({ page, totalPages, totalElements, onChange }
   const go = (p) => onChange(Math.max(0, Math.min(totalPages - 1, p)));
 
   return (
-    <div className="flex items-center justify-between text-xs text-zinc-500 mt-1">
+    <div className="flex items-center justify-between text-xs text-sub mt-1">
       <span>
         전체 {totalElements?.toLocaleString('ko-KR')}건 · {page + 1} / {totalPages} 페이지
       </span>
@@ -30,8 +30,8 @@ export default function Pagination({ page, totalPages, totalElements, onChange }
             onClick={() => go(p)}
             className={`min-w-[28px] px-2 py-1.5 rounded-md border ${
               p === page
-                ? 'bg-zinc-900 text-white border-zinc-900 font-semibold'
-                : 'border-zinc-300 hover:bg-zinc-50'
+                ? 'bg-ink text-white border-ink font-semibold'
+                : 'border-line hover:bg-surface'
             }`}
           >
             {p + 1}
@@ -55,7 +55,7 @@ function NavButton({ disabled, onClick, title, children }) {
       disabled={disabled}
       onClick={onClick}
       title={title}
-      className="px-2.5 py-1.5 border border-zinc-300 rounded-md disabled:opacity-30 hover:bg-zinc-50"
+      className="px-2.5 py-1.5 border border-line rounded-md disabled:opacity-30 hover:bg-surface"
     >
       {children}
     </button>

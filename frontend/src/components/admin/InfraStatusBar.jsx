@@ -22,7 +22,7 @@ export default function InfraStatusBar() {
   if (keys.length === 0) return null;
 
   return (
-    <div className="flex items-center gap-2 text-[11px]">
+    <div className="flex items-center gap-2 text-[12px] font-bold">
       {keys.map((k) => {
         const c = components[k];
         const up = c.status === 'UP';
@@ -30,11 +30,11 @@ export default function InfraStatusBar() {
           <span
             key={k}
             title={c.detail ?? (up ? `${c.latencyMs}ms` : '')}
-            className={`inline-flex items-center gap-1 px-2 py-1 rounded ${
-              up ? 'bg-zinc-100 text-zinc-500' : 'bg-zinc-900 text-white'
+            className={`inline-flex items-center gap-1 px-2 h-6 rounded-md ${
+              up ? 'bg-surface text-sub' : 'bg-danger text-white'
             }`}
           >
-            <span className={`w-1.5 h-1.5 rounded-full ${up ? 'bg-zinc-400' : 'bg-white'}`} />
+            <span className={`w-1.5 h-1.5 rounded-full ${up ? 'bg-mint' : 'bg-white'}`} />
             {LABEL[k] ?? k} {up ? 'UP' : 'DOWN'}
           </span>
         );

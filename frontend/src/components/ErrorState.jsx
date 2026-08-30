@@ -36,14 +36,14 @@ export default function ErrorState({ code = 'GENERIC', message, actionLabel = 'ë
   const c = CASES[code] ?? CASES.GENERIC;
   return (
     <div className="flex flex-col items-center justify-center gap-5 flex-grow text-center py-16">
-      <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" strokeWidth="1.5">
+      <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--color-sub)" strokeWidth="1.5">
         <circle cx="12" cy="12" r="9.25" />
         <line x1="12" y1="7.5" x2="12" y2="13" />
-        <circle cx="12" cy="16.5" r="0.9" fill="#a1a1aa" stroke="none" />
+        <circle cx="12" cy="16.5" r="0.9" fill="var(--color-sub)" stroke="none" />
       </svg>
       <div>
-        <div className="text-lg font-bold text-zinc-900 mb-1.5">{c.title}</div>
-        <div className="text-sm text-zinc-500 leading-relaxed">{message ?? c.desc}</div>
+        <div className="text-lg font-bold text-ink mb-1.5">{c.title}</div>
+        <div className="text-sm text-sub leading-relaxed">{message ?? c.desc}</div>
       </div>
       {onAction && (
         <Button onClick={onAction} className="px-7">
