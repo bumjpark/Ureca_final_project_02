@@ -44,6 +44,18 @@ public interface CouponIssueRepository extends JpaRepository<CouponIssue, Long> 
     @Query("select max(ci.issuedAt) from CouponIssue ci where ci.couponPolicy.id = :policyId")
     LocalDateTime findMaxIssuedAtByCouponPolicyId(@Param("policyId") Long policyId);
 
+    // 최초 발급 시각(issued_at)
+    @Query("select min(ci.issuedAt) from CouponIssue ci where ci.couponPolicy.id = :policyId")
+    LocalDateTime findMinIssuedAtByCouponPolicyId(@Param("policyId") Long policyId);
+
+    // 최초 DB 반영 시각(created_at)
+    @Query("select min(ci.createdAt) from CouponIssue ci where ci.couponPolicy.id = :policyId")
+    LocalDateTime findMinCreatedAtByCouponPolicyId(@Param("policyId") Long policyId);
+
+    // 마지막 DB 반영 시각(created_at)
+    @Query("select max(ci.createdAt) from CouponIssue ci where ci.couponPolicy.id = :policyId")
+    LocalDateTime findMaxCreatedAtByCouponPolicyId(@Param("policyId") Long policyId);
+
     // 정합성 검증 배치용 프로젝션
     @Query("select new com.ureca.myureca.repository.CouponIssueLifecycleSnapshot("
             + "ci.id, ci.user.id, ci.status, ci.usedAt) "
