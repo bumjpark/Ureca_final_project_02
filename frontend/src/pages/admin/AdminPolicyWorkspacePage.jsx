@@ -33,7 +33,10 @@ function StatusTab({ policyId }) {
 
   const s = statusQ.data;
   const m = metricsQ.data;
-  const rate = s ? s.issueRate.toFixed(1) : '0.0';
+  // toFixed(1)은 반올림 때문에 99.99%처럼 완전 소진이 아닌데도 "100.0%"로 뭉개져 보이는
+  // 문제가 있었다(실측: 9999/10000 발급인데 100%로 표시됨). 백엔드가 이미 소수 둘째자리까지
+  // 정확히 계산해서 주므로(CouponStatusService.getCouponStatus) 그 정밀도를 그대로 보여준다.
+  const rate = s ? s.issueRate.toFixed(2) : '0.00';
 
   // 남은 재고를 지금 속도(직전 1초 발급 수)로 나눠 대략적인 소진 예상 시간을 보여준다.
   let etaLabel = '-';
