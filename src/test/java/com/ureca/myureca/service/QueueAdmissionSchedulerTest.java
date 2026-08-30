@@ -66,10 +66,12 @@ class QueueAdmissionSchedulerTest {
 
         verify(queueAdmissionService).admitUsers(POLICY_ID, 500);
         verify(queueLimitAdminService).calculateAutoScaledLimit(POLICY_ID, 100L, 100L);
+        // 재고를 읽기 전에 이탈자부터 걷어내야, 그 몫만큼 가용량 계산이 과소평가되지 않는다.
+        verify(queueAdmissionService).reclaimStalePendingAdmissions(POLICY_ID);
     }
 
     @Test
-    void 다른_서버가_이미_락을_선점했으면_admitUsers를_호출하지_않는다() {
+    void 다른_서버가_이미_락을_선점했으면_admitUsers도_reclaim도_호출하지_않는다() {
         when(couponPolicyCacheService.getActivePolicies())
                 .thenReturn(List.of(activePolicy));
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
@@ -79,6 +81,7 @@ class QueueAdmissionSchedulerTest {
         scheduler.processQueueAdmission();
 
         verify(queueAdmissionService, never()).admitUsers(anyLong(), anyInt());
+        verify(queueAdmissionService, never()).reclaimStalePendingAdmissions(anyLong());
     }
 
     @Test
@@ -109,5 +112,8 @@ class QueueAdmissionSchedulerTest {
         scheduler.processQueueAdmission();
 
         verify(queueAdmissionService, never()).admitUsers(anyLong(), anyInt());
+        // 재고가 0이어도 이탈자 회수는 계속 돈다 — pending을 비워두지 않으면 재입고/보정 시
+        // 다음 admitUsers 계산이 여전히 과소평가된 채로 시작한다.
+        verify(queueAdmissionService).reclaimStalePendingAdmissions(POLICY_ID);
     }
 }

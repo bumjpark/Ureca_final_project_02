@@ -16,7 +16,7 @@ services:
       BASE_URL: http://app:8080
       POLICY_ID: ${POLICY_ID:-}
       STOCK: ${STOCK:-10000}
-      PEAK: ${PEAK:-500}
+      PEAK: ${PEAK:-20000}
       RAMP: ${RAMP:-10s}
       HOLD: ${HOLD:-30s}
       MODE: ${MODE:-vus}

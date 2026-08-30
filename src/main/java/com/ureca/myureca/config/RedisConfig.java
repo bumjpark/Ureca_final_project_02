@@ -64,6 +64,21 @@ public class RedisConfig {
         return script;
     }
 
+    /**
+     * admit_batch.lua: 이번 틱에 입장시킬 userId 문자열 배열을 반환한다(재고는 안 건드림 —
+     * 재고 차감은 여전히 {@link #issueCouponScript}만의 책임). {@code 재고 - pending ZSET 크기}
+     * 만큼만 뽑아, 아직 발급 확정 안 된 사람들과 새 입장자가 여러 틱에 걸쳐 같은 재고를
+     * 놓고 경쟁하는 것을 막는다(2026-08-30 FCFS 역전 조사).
+     */
+    @SuppressWarnings("unchecked")
+    @Bean
+    public RedisScript<List<String>> admitBatchScript() {
+        DefaultRedisScript script = new DefaultRedisScript();
+        script.setLocation(new ClassPathResource("scripts/admit_batch.lua"));
+        script.setResultType(List.class);
+        return script;
+    }
+
     /** consume_token.lua: 1(성공) / 0(토큰 없음) / -1(userId 불일치) */
     @Bean
     public RedisScript<Long> consumeTokenScript() {

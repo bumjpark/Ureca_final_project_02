@@ -22,6 +22,23 @@ public final class RedisKeys {
         return couponPolicyPrefix(policyId) + ":reserved";
     }
 
+    /**
+     * 입장(admission)했지만 아직 {@code /issue}로 확정되지 않은 유저 ZSET. score = 입장 시각(epoch millis).
+     *
+     * <p>이 키의 목적은 재고를 미리 예약하는 게 아니다 — 재고 차감은 여전히 {@code issue_coupon.lua}
+     * 한 곳에서만 일어난다. 대신 {@code QueueAdmissionScheduler}가 다음 배치 크기를 정할 때
+     * {@code 재고 - 이 ZSET 크기}만큼만 입장시켜서, 아직 발급 확정 안 된 사람들과 새로 입장하는
+     * 사람들이 같은 재고를 놓고 여러 틱에 걸쳐 겹쳐서 경쟁하는 것을 막는다(2026-08-30 FCFS 역전
+     * 조사에서 확인한 원인 — 회차별 조사 기록: Docs/load-test 참고).
+     *
+     * <p>{@code /issue} 호출은 성공/실패와 무관하게 항상 이 ZSET에서 자신을 제거한다(터미널 상태
+     * 진입). TTL 안에 {@code /issue}를 끝내 호출하지 않으면 {@code QueueAdmissionScheduler}가
+     * 주기적으로 오래된 항목을 걷어낸다(재고를 되돌릴 필요는 없다 — 애초에 안 깎았으므로).
+     */
+    public static String couponPending(Long policyId) {
+        return couponPolicyPrefix(policyId) + ":pending";
+    }
+
     public static String couponIssued(Long policyId) {
         return couponPolicyPrefix(policyId) + ":issued";
     }

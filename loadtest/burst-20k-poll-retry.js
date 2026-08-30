@@ -43,9 +43,9 @@ import { Counter, Trend } from 'k6/metrics';
 
 const BASE_URL = __ENV.BASE_URL || 'http://app:8080';
 const MODE = __ENV.MODE || 'vus';
-const PEAK = Number(__ENV.PEAK || 500);
+const PEAK = Number(__ENV.PEAK || 20000);
 const RAMP = __ENV.RAMP || '10s';
-const HOLD = __ENV.HOLD || '30s';
+const HOLD = __ENV.HOLD || '20s';
 const MAX_USER_ID_ENV = __ENV.MAX_USER_ID ? Number(__ENV.MAX_USER_ID) : null;
 const STOCK = Number(__ENV.STOCK || 10000);
 const QUEUE_LIMIT = __ENV.QUEUE_LIMIT ? Number(__ENV.QUEUE_LIMIT) : null;
@@ -111,7 +111,7 @@ export const options = {
             startRate: 1,
             timeUnit: '1s',
             preAllocatedVUs: Math.min(PEAK, 2000),
-            maxVUs: Math.max(PEAK, 200),
+            maxVUs: Math.max(PEAK, 20000),
             stages: [
               { target: PEAK, duration: RAMP },
               { target: PEAK, duration: HOLD },
@@ -235,30 +235,20 @@ export function setup() {
     maxUserId = totalUsers;
   }
 
-  // Redis 재고 키가 준비되었는지 더미 join으로 확인
-  for (let attempt = 0; attempt < 20; attempt++) {
-    const probe = http.post(
-      `${BASE_URL}/api/queue/join`,
-      JSON.stringify({
-        policyId,
-        userId: maxUserId,
-      }),
-      {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        tags: {
-          name: 'setup_probe',
-        },
-      },
-    );
-
-    if (probe.status === 200) {
-      break;
-    }
-
-    sleep(1);
-  }
+  // Redis 재고 키가 준비될 때까지 대기 — RedisAutoRecoveryScheduler가 5초 주기로 훑으면서
+  // 채워주는 구조라, 방금 연 정책은 그 다음 틱이 돌 때까지 "쿠폰 재고가 Redis에 초기화되지
+  // 않았습니다"(500)로 전량 실패할 수 있다(POLICY_ID를 직접 지정한 경우도 막 오픈한 정책이면
+  // 마찬가지). 스케줄러 주기(5초) + 여유를 고정으로 기다린다.
+  //
+  // 예전에는 여기서 실제 /api/queue/join으로 더미 조인을 찔러 확인했는데(userId=maxUserId
+  // 사용), 그 호출 자체가 join_queue.lua의 INCR을 소비해 대기열에 "순번 1번"짜리 유령
+  // 항목을 실제로 만들었다 — 본 실행의 어떤 VU도 그 항목을 이어받아 완주하지 않으므로
+  // (RAMP 막바지에 스케줄되는 마지막 VU가 스테이지 종료와 겹쳐 아예 실행되지 못하는 경계
+  // 케이스와 맞물리면 특히), 정책이 열릴 때마다 FCFS 검증에서 "1등인데 발급 안 됨" 오탐이
+  // 매번 1건씩 고정으로 나왔다(2026-08-30 policyId=4 회차에서 실측 확인). 이 확인은 부작용
+  // 없는 고정 대기로 대체한다 — 정확도를 조금 포기하는 대신 검증 결과를 절대 오염시키지
+  // 않는다.
+  sleep(6);
 
   if (QUEUE_LIMIT) {
     http.patch(
