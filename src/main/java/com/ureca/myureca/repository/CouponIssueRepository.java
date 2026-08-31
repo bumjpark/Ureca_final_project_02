@@ -1,10 +1,11 @@
 package com.ureca.myureca.repository;
 
+import com.ureca.myureca.domain.coupon.CouponIssue;
+import com.ureca.myureca.domain.coupon.IssueStatus;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
-
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -13,16 +14,12 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import com.ureca.myureca.domain.coupon.CouponIssue;
-import com.ureca.myureca.domain.coupon.IssueStatus;
-
 /**
- * 내 쿠폰함 조회 전용 리포지토리.
+ * 내 쿠폰함 조회 및 상태 관리 리포지토리.
  */
 public interface CouponIssueRepository extends JpaRepository<CouponIssue, Long> {
 
-
-     // 정합성 검증 배치용
+    // 정합성 검증 배치용
     @Query("select ci.user.id from CouponIssue ci where ci.couponPolicy.id = :policyId")
     List<Long> findUserIdsByCouponPolicyId(@Param("policyId") Long policyId);
 
@@ -48,15 +45,12 @@ public interface CouponIssueRepository extends JpaRepository<CouponIssue, Long> 
     long countIssuedSince(@Param("policyId") Long policyId, @Param("since") LocalDateTime since);
 
     // 1초 단위 버킷으로 그룹핑한 발급 건수 — idx_policy_issued(coupon_policy_id, issued_at) 인덱스를 탄다.
-    // 그래프 창(seconds)만큼만 조회해 정책 전체 이력을 스캔하지 않는다.
     @Query(value = "select date_format(issued_at, '%Y-%m-%d %H:%i:%s') as bucket, count(*) as cnt "
             + "from coupon_issue where coupon_policy_id = :policyId and issued_at >= :since "
             + "group by bucket order by bucket", nativeQuery = true)
     List<Object[]> countIssuedBySecondSince(@Param("policyId") Long policyId, @Param("since") LocalDateTime since);
 
-    // 가장 최근 발급 시각 — 그래프 창(seconds) 밖에서 마지막으로 발급된 경우(한동안 발급이 없던
-    // 정책)에도 "마지막 발급이 언제였는지"를 보여주기 위해 창 크기와 무관하게 별도로 조회한다.
-    // idx_policy_issued 인덱스 덕분에 정렬 없이 MAX()로 바로 찾는다.
+    // 가장 최근 발급 시각
     @Query("select max(ci.issuedAt) from CouponIssue ci where ci.couponPolicy.id = :policyId")
     LocalDateTime findMaxIssuedAtByCouponPolicyId(@Param("policyId") Long policyId);
 
@@ -163,7 +157,6 @@ public interface CouponIssueRepository extends JpaRepository<CouponIssue, Long> 
             + "where ci.id = :id")
     Optional<CouponIssue> findDetailById(@Param("id") Long id);
 
-    // ---- 발급 접수(receiptId) 상태 조회용(202 ACCEPTED 직후 폴링) ----
     @Query("select ci from CouponIssue ci "
             + "join fetch ci.couponPolicy "
             + "join fetch ci.user "

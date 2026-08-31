@@ -62,7 +62,7 @@ class MyCouponQueryServiceTest {
     @BeforeEach
     void setUp() throws Exception {
         myCouponQueryService =
-                new MyCouponQueryService(couponIssueRepository, userRepository, reconciliationLogRepository);
+                new MyCouponQueryService(userRepository, couponIssueRepository, reconciliationLogRepository);
         owner = new User("pcy9849@gmail.com", "홍길동");
         setField(owner, "id", OWNER_ID);
     }

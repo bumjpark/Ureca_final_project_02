@@ -9,19 +9,24 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.ureca.myureca.domain.coupon.CouponPolicyStatus;
 import com.ureca.myureca.domain.coupon.CouponType;
 import com.ureca.myureca.dto.request.CouponPolicyUpdateRequest;
+import com.ureca.myureca.dto.response.CouponPolicyExpirationResponse;
 import com.ureca.myureca.dto.response.CouponPolicyResponse;
 import com.ureca.myureca.dto.response.PageResponse;
 import com.ureca.myureca.exception.CouponPolicyNotFoundException;
 import com.ureca.myureca.exception.InvalidCouponPolicyException;
+import com.ureca.myureca.service.CouponExpirationService;
 import com.ureca.myureca.service.CouponPolicyService;
 import java.time.LocalDateTime;
 import java.util.List;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -47,11 +52,15 @@ class CouponPolicyAdminControllerTest {
     @MockitoBean
     private CouponPolicyService couponPolicyService;
 
+    @MockitoBean
+    private CouponExpirationService couponExpirationService;
+
     @Test
     void 정책_목록_조회에_성공하면_200을_반환한다() throws Exception {
         CouponPolicyResponse response = new CouponPolicyResponse(
                 1L, "테스트 쿠폰", CouponType.FIXED, 1000, 100,
-                LocalDateTime.now().plusDays(1), null, LocalDateTime.now(), LocalDateTime.now()
+                LocalDateTime.now().plusDays(1), null, CouponPolicyStatus.BEFORE_OPEN,
+                LocalDateTime.now(), LocalDateTime.now()
         );
         PageResponse<CouponPolicyResponse> pageResponse = PageResponse.from(
                 new PageImpl<>(List.of(response), PageRequest.of(0, 10), 1)
@@ -61,21 +70,24 @@ class CouponPolicyAdminControllerTest {
         mockMvc.perform(get("/api/admin/coupon-policies"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].id").value(1L))
-                .andExpect(jsonPath("$.content[0].title").value("테스트 쿠폰"));
+                .andExpect(jsonPath("$.content[0].title").value("테스트 쿠폰"))
+                .andExpect(jsonPath("$.content[0].status").value("BEFORE_OPEN"));
     }
 
     @Test
     void 정책_단건_조회에_성공하면_200을_반환한다() throws Exception {
         CouponPolicyResponse response = new CouponPolicyResponse(
                 1L, "테스트 쿠폰", CouponType.FIXED, 1000, 100,
-                LocalDateTime.now().plusDays(1), null, LocalDateTime.now(), LocalDateTime.now()
+                LocalDateTime.now().plusDays(1), null, CouponPolicyStatus.BEFORE_OPEN,
+                LocalDateTime.now(), LocalDateTime.now()
         );
         when(couponPolicyService.getCouponPolicy(1L)).thenReturn(response);
 
         mockMvc.perform(get("/api/admin/coupon-policies/1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1L))
-                .andExpect(jsonPath("$.title").value("테스트 쿠폰"));
+                .andExpect(jsonPath("$.title").value("테스트 쿠폰"))
+                .andExpect(jsonPath("$.status").value("BEFORE_OPEN"));
     }
 
     @Test
@@ -86,7 +98,8 @@ class CouponPolicyAdminControllerTest {
         );
         CouponPolicyResponse response = new CouponPolicyResponse(
                 1L, "수정된 쿠폰", CouponType.RATE, 20, 200,
-                newOpenAt, null, LocalDateTime.now(), LocalDateTime.now()
+                newOpenAt, null, CouponPolicyStatus.BEFORE_OPEN,
+                LocalDateTime.now(), LocalDateTime.now()
         );
         when(couponPolicyService.updateCouponPolicy(eq(1L), any(CouponPolicyUpdateRequest.class)))
                 .thenReturn(response);
@@ -179,5 +192,36 @@ class CouponPolicyAdminControllerTest {
         mockMvc.perform(delete("/api/admin/coupon-policies/999"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message", containsString("존재하지 않는 쿠폰 정책입니다")));
+    }
+
+    @Test
+    @DisplayName("특정 정책 만료 API 호출 성공 시 200과 만료 결과를 반환한다")
+    void expireCouponPolicy_success() throws Exception {
+        CouponPolicyExpirationResponse response = new CouponPolicyExpirationResponse(
+                1L, 1, 500, "정책 ID 1 및 소속 쿠폰 500건이 정상적으로 만료(EXPIRED) 처리되었습니다."
+        );
+        when(couponExpirationService.expireCouponsByPolicyId(eq(1L), eq(5000))).thenReturn(response);
+
+        mockMvc.perform(post("/api/admin/coupon-policies/1/expire")
+                        .param("chunkSize", "5000"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.policyId").value(1L))
+                .andExpect(jsonPath("$.affectedPolicies").value(1))
+                .andExpect(jsonPath("$.affectedCoupons").value(500));
+    }
+
+    @Test
+    @DisplayName("전체 만료 정책 일괄 만료 API 호출 성공 시 200과 결과를 반환한다")
+    void expireAllCouponPolicies_success() throws Exception {
+        CouponPolicyExpirationResponse response = new CouponPolicyExpirationResponse(
+                null, 3, 1500, "총 3개 정책 및 1500건의 쿠폰이 정상적으로 만료(EXPIRED) 처리되었습니다."
+        );
+        when(couponExpirationService.expireAllCoupons(eq(5000))).thenReturn(response);
+
+        mockMvc.perform(post("/api/admin/coupon-policies/expire")
+                        .param("chunkSize", "5000"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.affectedPolicies").value(3))
+                .andExpect(jsonPath("$.affectedCoupons").value(1500));
     }
 }

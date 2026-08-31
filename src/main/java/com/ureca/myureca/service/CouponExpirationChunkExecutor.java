@@ -21,7 +21,7 @@ public class CouponExpirationChunkExecutor {
      *
      * @param policyId  쿠폰 정책 ID
      * @param now       만료 처리 기준 시각
-     * @param chunkSize 한 번에 처리할 청크 크기 (예: 5000)
+     * @param chunkSize 한 번에 처리할 청크 크기 (기본: 5000)
      * @return 이번 청크에서 실제로 변경된 행(row) 수
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)

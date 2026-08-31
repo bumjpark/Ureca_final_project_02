@@ -1,15 +1,18 @@
 package com.ureca.myureca.service;
 
 import com.ureca.myureca.domain.coupon.CouponPolicy;
+import com.ureca.myureca.dto.response.CouponPolicyExpirationResponse;
+import com.ureca.myureca.exception.CouponPolicyNotFoundException;
 import com.ureca.myureca.repository.CouponPolicyRepository;
 import java.time.LocalDateTime;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 마감 기한(closeAt)이 지난 쿠폰의 DB 상태(status)를 ISSUED -> EXPIRED 로 청크(Chunk) 단위로 안전하게 분할 변경하는 서비스.
+ * 마감 기한(closeAt)이 지난 쿠폰 정책 및 발급 쿠폰의 DB 상태를 EXPIRED 로 청크 단위로 안전하게 분할 변경하는 서비스.
  *
  * <p>수백만 건의 대용량 데이터 환경에서도 단일 트랜잭션의 락(Lock) 점유 및 Undo Log 폭발을 방지하기 위해,
  * 기본 5,000건 단위로 쪼개어 독립 커밋({@code REQUIRES_NEW})하며 순차 처리한다.
@@ -26,18 +29,24 @@ public class CouponExpirationService {
     public static final long CHUNK_PAUSE_MILLIS = 10L;
 
     private final CouponPolicyRepository couponPolicyRepository;
+    private final CouponPolicyCacheService couponPolicyCacheService;
     private final CouponExpirationChunkExecutor chunkExecutor;
 
     /**
-     * 특정 쿠폰 정책에 대해 ISSUED 상태인 발급 건을 청크 단위로 분할하여 EXPIRED 로 변경한다.
+     * 특정 쿠폰 정책의 상태를 EXPIRED 로 변경하고, 소속된 ISSUED 쿠폰들을 청크 단위로 EXPIRED 로 변경한다.
      *
      * @param policyId  쿠폰 정책 ID
      * @param chunkSize 청크 크기 (0 이하일 경우 기본값 5,000 사용)
-     * @return 상태가 변경된 총 쿠폰 건수
+     * @return 상태가 변경된 총 쿠폰 건수 및 정책 정보 응답
      */
-    public int expireCouponsByPolicyId(Long policyId, int chunkSize) {
+    public CouponPolicyExpirationResponse expireCouponsByPolicyId(Long policyId, int chunkSize) {
         int size = chunkSize > 0 ? chunkSize : DEFAULT_CHUNK_SIZE;
         LocalDateTime now = LocalDateTime.now();
+
+        // 1. 정책 상태를 EXPIRED 로 변경
+        expirePolicyEntity(policyId);
+
+        // 2. 발급 쿠폰들을 청크 단위로 EXPIRED 로 변경
         int totalAffected = 0;
         int chunkIndex = 1;
 
@@ -59,42 +68,67 @@ public class CouponExpirationService {
         if (totalAffected > 0) {
             log.info("정책 ID {} 만료 쿠폰 청크 처리 완료: 총 {}건 ({}회 분할 커밋)", policyId, totalAffected, chunkIndex);
         }
-        return totalAffected;
+
+        // 3. 캐시 무효화
+        couponPolicyCacheService.evict(policyId);
+
+        return new CouponPolicyExpirationResponse(
+                policyId,
+                1,
+                totalAffected,
+                "정책 ID %d 및 소속 쿠폰 %d건이 정상적으로 만료(EXPIRED) 처리되었습니다.".formatted(policyId, totalAffected)
+        );
     }
 
     /**
      * 기본 청크 크기(5,000건)로 특정 정책의 쿠폰을 만료 처리한다.
      */
-    public int expireCouponsByPolicyId(Long policyId) {
+    public CouponPolicyExpirationResponse expireCouponsByPolicyId(Long policyId) {
         return expireCouponsByPolicyId(policyId, DEFAULT_CHUNK_SIZE);
     }
 
     /**
-     * 마감 일시(closeAt)가 지난 모든 쿠폰 정책을 탐색하여 청크 단위로 일괄 만료 처리한다.
+     * 마감 일시(closeAt)가 지난 모든 쿠폰 정책을 탐색하여 정책 상태 및 쿠폰들을 일괄 만료 처리한다.
      *
      * @param chunkSize 청크 크기
-     * @return 상태가 변경된 총 쿠폰 건수
+     * @return 총 처리된 정책 수 및 쿠폰 수 응답
      */
-    public int expireAllCoupons(int chunkSize) {
+    public CouponPolicyExpirationResponse expireAllCoupons(int chunkSize) {
         LocalDateTime now = LocalDateTime.now();
         List<CouponPolicy> expiredPolicies = couponPolicyRepository.findExpiredPolicies(now);
-        int totalAffected = 0;
+        int totalAffectedCoupons = 0;
 
         for (CouponPolicy policy : expiredPolicies) {
-            totalAffected += expireCouponsByPolicyId(policy.getId(), chunkSize);
+            CouponPolicyExpirationResponse res = expireCouponsByPolicyId(policy.getId(), chunkSize);
+            totalAffectedCoupons += res.affectedCoupons();
         }
 
-        if (totalAffected > 0) {
-            log.info("전체 만료 정책 청크 정리 완료: 대상 정책 수={}, 총 만료 건수={}", expiredPolicies.size(), totalAffected);
+        if (!expiredPolicies.isEmpty()) {
+            log.info("전체 만료 정책 청크 정리 완료: 대상 정책 수={}, 총 만료 쿠폰 수={}",
+                    expiredPolicies.size(), totalAffectedCoupons);
         }
-        return totalAffected;
+
+        return new CouponPolicyExpirationResponse(
+                null,
+                expiredPolicies.size(),
+                totalAffectedCoupons,
+                "총 %d개 정책 및 %d건의 쿠폰이 정상적으로 만료(EXPIRED) 처리되었습니다."
+                        .formatted(expiredPolicies.size(), totalAffectedCoupons)
+        );
     }
 
     /**
      * 기본 청크 크기(5,000건)로 모든 만료 정책의 쿠폰을 만료 처리한다.
      */
-    public int expireAllCoupons() {
+    public CouponPolicyExpirationResponse expireAllCoupons() {
         return expireAllCoupons(DEFAULT_CHUNK_SIZE);
+    }
+
+    @Transactional
+    public void expirePolicyEntity(Long policyId) {
+        CouponPolicy policy = couponPolicyRepository.findByIdAndDeletedAtIsNull(policyId)
+                .orElseThrow(() -> new CouponPolicyNotFoundException(policyId));
+        policy.expire();
     }
 
     private void pauseShort() {

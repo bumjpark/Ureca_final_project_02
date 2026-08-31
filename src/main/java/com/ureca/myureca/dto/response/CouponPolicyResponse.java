@@ -1,12 +1,12 @@
 package com.ureca.myureca.dto.response;
 
 import com.ureca.myureca.domain.coupon.CouponPolicy;
+import com.ureca.myureca.domain.coupon.CouponPolicyStatus;
 import com.ureca.myureca.domain.coupon.CouponType;
 import java.time.LocalDateTime;
 
 /**
  * 쿠폰 정책 목록/상세 조회 공통 응답 DTO.
- * POST /api/admin/coupon-policies 응답 바디. 별도 래퍼 없이 리소스를 그대로 반환한다.
  */
 public record CouponPolicyResponse(
         Long id,
@@ -16,6 +16,7 @@ public record CouponPolicyResponse(
         Integer totalQuantity,
         LocalDateTime openAt,
         LocalDateTime closeAt,
+        CouponPolicyStatus status,
         LocalDateTime createdAt,
         LocalDateTime updatedAt) {
 
@@ -28,6 +29,7 @@ public record CouponPolicyResponse(
                 couponPolicy.getTotalQuantity(),
                 couponPolicy.getOpenAt(),
                 couponPolicy.getCloseAt(),
+                couponPolicy.getStatus(),
                 couponPolicy.getCreatedAt(),
                 couponPolicy.getUpdatedAt());
     }
