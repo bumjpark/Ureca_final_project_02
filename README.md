@@ -219,7 +219,7 @@ DB 병목 없이 보장하는 것을 목표로 한 쿠폰 발급 시스템입니
 
 
 ### 요청 흐름
-
+```
 [클라이언트]
 │ ① POST /api/queue/join (Redis ZSET, userId
 │ 서버가 issue() 진입점에서 입장 여부를 직접 재검증 (대기열 우회 차단)
@@ -239,7 +239,7 @@ DB 병목 없이 보장하는 것을 목표로 한 쿠폰 발급 시스템입니
 [DLT] Consumer 처리 실패 메시지는 Dead Letter Topic으로 이동 후 재처리
 [POST /api/coupons/{eventId}/recover] Redis 전체 유실 시 DB 기준으로 재고·이력 재계산
 (Kafka Consumer lag이 0이 아니면 부분 복구 방지를 위해 즉시 실패)
-
+```
 
 ### 핵심 설계 결정
 
