@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -317,8 +318,8 @@ public class VerificationAsyncTrigger {
      * {@code reconciliation_log}(ISSUE_REPROCESS)에 등록해 가시성만 확보한다. 재발급 여부는
      * 여전히 사람이 판단한다.
      *
-     * @return 이번 호출에서 발견한 미아 예약 유저 수(이미 등록된 것도 포함 — 신규 등록 여부는
-     *         {@link #registerRedisOnlyDrift} 내부의 {@code existsByEventKey}가 조용히 걸러낸다)
+     * @return 이번 호출에서 <b>새로</b> 발견한(= 아직 {@code reconciliation_log}에 없는) 미아 예약
+     *         유저 수. 이미 등록된 건은 세지 않는다 — 아래 "왜 신규만 세는가" 참고.
      */
     @Transactional
     public int detectAndRegisterStaleReserved(Long policyId) {
@@ -326,15 +327,65 @@ public class VerificationAsyncTrigger {
         if (staleReservedUserIds.isEmpty()) {
             return 0;
         }
-        Set<Long> dbUserIds = new HashSet<>(couponIssueRepository.findUserIdsByCouponPolicyId(policyId));
-        staleReservedUserIds.removeAll(dbUserIds); // 이미 DB에 있으면 ZREM만 못 한 것이라 유실이 아니다
-        if (staleReservedUserIds.isEmpty()) {
+
+        // 왜 신규만 세는가 / 왜 여기서 먼저 거르는가:
+        // 미아 예약은 설계상 자동 재발급을 하지 않으므로(사람이 판단), 사람이 처리해주기 전까지
+        // Redis reserved에 계속 남는다. 그래서 이 스케줄러는 같은 건을 매 틱(60초) 다시 발견한다.
+        // 예전에는 그 상태로 아래 findUserIdsByCouponPolicyId(정책 전체 user_id를 통째로 로드 —
+        // 정책이 클수록 비싸다)까지 매번 실행하고, 등록 단계에서야 중복을 걸러냈다. 그 결과
+        // "이미 다 등록해둔 1,000건"을 위해 60초마다 영원히 같은 무거운 조회를 반복했다.
+        // 이미 등록된 eventKey는 인덱스 조회 한 번으로 싸게 걸러지므로, 여기서 먼저 잘라내고
+        // 새로 볼 게 없으면 곧바로 빠져나간다(2026-08-31).
+        Set<Long> unregistered = filterUnregistered(policyId, staleReservedUserIds, "RESERVED_STALE");
+        if (unregistered.isEmpty()) {
             return 0;
         }
-        log.error("🚨 정책 id={} 미아 예약(stale RESERVED) {}건 — 재고만 깎이고 발급이 확정되지 않은 유저",
-                policyId, staleReservedUserIds.size());
-        registerRedisOnlyDrift(policyId, staleReservedUserIds, LocalDateTime.now(), "RESERVED_STALE");
-        return staleReservedUserIds.size();
+
+        Set<Long> dbUserIds = new HashSet<>(couponIssueRepository.findUserIdsByCouponPolicyId(policyId));
+        unregistered.removeAll(dbUserIds); // 이미 DB에 있으면 ZREM만 못 한 것이라 유실이 아니다
+        if (unregistered.isEmpty()) {
+            return 0;
+        }
+        log.error("🚨 정책 id={} 미아 예약(stale RESERVED) 신규 {}건 — 재고만 깎이고 발급이 확정되지 않은 유저",
+                policyId, unregistered.size());
+        registerRedisOnlyDrift(policyId, unregistered, LocalDateTime.now(), "RESERVED_STALE");
+        return unregistered.size();
+    }
+
+    /**
+     * 아직 {@code reconciliation_log}에 등록되지 않은 유저만 골라낸다(청크 단위 IN 조회).
+     *
+     * <p>{@link #registerRedisOnlyDrift}도 내부에서 같은 확인을 한 번 더 한다 — 중복처럼 보이지만
+     * 의도한 것이다. 이 메서드는 "비싼 후속 작업을 할 가치가 있는가"를 미리 판단하는 단축용이고,
+     * 등록 시점의 확인은 그 사이 다른 경로(검증 배치)가 먼저 등록했을 경쟁 상황까지 막는
+     * 최종 방어선이다. 여기서 걸러진 뒤라 등록 단계의 확인 대상은 이미 작다.
+     */
+    private Set<Long> filterUnregistered(Long policyId, Set<Long> userIds, String discrepancyType) {
+        String keyPrefix = driftEventKeyPrefix(policyId, discrepancyType);
+        List<Long> ordered = new ArrayList<>(userIds);
+        ordered.sort(null);
+
+        Set<Long> unregistered = new LinkedHashSet<>();
+        for (int from = 0; from < ordered.size(); from += DRIFT_REGISTER_CHUNK_SIZE) {
+            List<Long> chunk = ordered.subList(
+                    from, Math.min(from + DRIFT_REGISTER_CHUNK_SIZE, ordered.size()));
+            Set<String> existing = reconciliationLogRepository.findExistingEventKeys(
+                    chunk.stream().map(userId -> keyPrefix + userId).toList());
+            for (Long userId : chunk) {
+                if (!existing.contains(keyPrefix + userId)) {
+                    unregistered.add(userId);
+                }
+            }
+        }
+        return unregistered;
+    }
+
+    /**
+     * 유형별로 키를 나눠, 같은 유저가 두 유형에 모두 해당해도 각각 한 행씩만 남게 한다.
+     * REDIS_ONLY → {@code "verify-redis-only:{policyId}:{userId}"}
+     */
+    private String driftEventKeyPrefix(Long policyId, String discrepancyType) {
+        return "verify-" + discrepancyType.toLowerCase().replace('_', '-') + ':' + policyId + ':';
     }
 
     /**
@@ -405,38 +456,91 @@ public class VerificationAsyncTrigger {
      * "Redis가 맞고 DB가 틀렸다"고 단정할 수 없는 상태이기 때문이다(예: Redis 복구 배치가
      * DB 기준으로 재구성하기 전의 잔재라면, 자동 발급은 없어야 할 쿠폰을 만들어낸다).
      */
+    /**
+     * 존재 확인·적재를 나눠 실행할 청크 크기. IN 절 파라미터 수와 한 번에 영속성 컨텍스트에
+     * 쌓이는 엔티티 수를 동시에 제한한다.
+     */
+    private static final int DRIFT_REGISTER_CHUNK_SIZE = 1000;
+
+    /**
+     * 발견한 드리프트를 {@code reconciliation_log}(ISSUE_REPROCESS)에 등록한다.
+     *
+     * <p><b>왜 건별이 아니라 청크 배치인가</b>: 예전에는 유저 한 명마다 {@code existsByEventKey}
+     * SELECT 한 번 + {@code save()} 한 번 + ERROR 로그 한 줄을 찍었다. 미아 예약이 소수일 때는
+     * 문제가 없었지만, 부하테스트 잔여물(reserved 1만 건)과 300만 건 데모 데이터의 상시 미아
+     * 예약 1천 건이 겹치자 <b>11,000건 등록에 2분 넘게 걸리면서 스케줄러 스레드 하나를 통째로
+     * 점유</b>했다(2026-08-31 실측: 15:03:23 → 15:05:22). {@code SchedulingConfig}의 풀에 여유가
+     * 없던 탓에 그동안 {@code RedisAutoRecoveryScheduler.recoverMissingStock}이 밀렸고, 그 결과
+     * 새로 만든 정책의 Redis 재고 키가 제때 초기화되지 않아 신규 발급 요청이 전량
+     * {@code IllegalStateException}(500)으로 실패했다 — "발견만 하는 안전망"이 정작 정상 발급
+     * 경로를 굶겨 죽인 셈이다.
+     *
+     * <p>그래서 (1) 존재 확인을 IN 조회 한 번으로 묶고, (2) 적재를 {@code saveAll}로 모으고,
+     * (3) 건별 ERROR 로그를 요약 한 줄로 바꾼다. userId 오름차순으로 정렬해 적재하는 건
+     * 동시에 도는 다른 쓰기와 락 획득 순서를 일정하게 맞추기 위함이다.
+     */
     private void registerRedisOnlyDrift(
             Long policyId, Set<Long> driftUserIds, LocalDateTime detectedAt, String discrepancyType) {
-        for (Long userId : driftUserIds) {
-            // 유형별로 키를 나눠, 같은 유저가 두 유형에 모두 해당해도 각각 한 행씩만 남게 한다.
-            // REDIS_ONLY → "verify-redis-only:{policyId}:{userId}"
-            String eventKey = "verify-" + discrepancyType.toLowerCase().replace('_', '-')
-                    + ':' + policyId + ':' + userId;
-            if (reconciliationLogRepository.existsByEventKey(eventKey)) {
-                continue;
+        if (driftUserIds.isEmpty()) {
+            return;
+        }
+
+        String keyPrefix = driftEventKeyPrefix(policyId, discrepancyType);
+
+        List<Long> userIds = new ArrayList<>(driftUserIds);
+        userIds.sort(null);
+
+        int registered = 0;
+        int alreadyRegistered = 0;
+        int failed = 0;
+
+        for (int from = 0; from < userIds.size(); from += DRIFT_REGISTER_CHUNK_SIZE) {
+            List<Long> chunk = userIds.subList(
+                    from, Math.min(from + DRIFT_REGISTER_CHUNK_SIZE, userIds.size()));
+
+            List<String> eventKeys = chunk.stream().map(userId -> keyPrefix + userId).toList();
+            Set<String> existing = reconciliationLogRepository.findExistingEventKeys(eventKeys);
+            alreadyRegistered += existing.size();
+
+            List<ReconciliationLog> toSave = new ArrayList<>();
+            for (Long userId : chunk) {
+                String eventKey = keyPrefix + userId;
+                if (existing.contains(eventKey)) {
+                    continue;
+                }
+                try {
+                    String payload = objectMapper.writeValueAsString(
+                            new RedisOnlyDriftDetail(policyId, userId, detectedAt));
+                    ReconciliationLog reconciliationLog = new ReconciliationLog(
+                            ReconciliationType.ISSUE_REPROCESS,
+                            eventKey,
+                            null,   // coupon_issue_id: DB에 대응 행이 없으므로 연결할 대상이 없다.
+                            null,   // topic: 재발행할 Kafka 토픽이 없다(원본 이벤트를 모른다).
+                            payload,
+                            null    // requestedBy: 검증 배치가 자동으로 적재한 것이다.
+                    );
+                    reconciliationLog.recordOriginalFailure(reasonOf(discrepancyType, userId));
+                    toSave.add(reconciliationLog);
+                } catch (Exception e) {
+                    // 여기서마저 실패하면 이 드리프트는 다음 회차 CSV로만 남는다 — 최소한 로그로는
+                    // 추적 가능하게 CRITICAL로 남긴다(KafkaCouponEventProducer.recordPublishFailure와
+                    // 동일한 이유). 이건 건별로 남긴다 — 요약만 남기면 어느 유저가 빠졌는지 알 수 없다.
+                    failed++;
+                    log.error("[Verification] CRITICAL: {} 드리프트를 reconciliation_log에 적재하지 못함 "
+                                    + "- policyId={}, userId={}", discrepancyType, policyId, userId, e);
+                }
             }
-            try {
-                String payload = objectMapper.writeValueAsString(
-                        new RedisOnlyDriftDetail(policyId, userId, detectedAt));
-                ReconciliationLog reconciliationLog = new ReconciliationLog(
-                        ReconciliationType.ISSUE_REPROCESS,
-                        eventKey,
-                        null,   // coupon_issue_id: DB에 대응 행이 없으므로 연결할 대상이 없다.
-                        null,   // topic: 재발행할 Kafka 토픽이 없다(원본 이벤트를 모른다).
-                        payload,
-                        null    // requestedBy: 검증 배치가 자동으로 적재한 것이다.
-                );
-                reconciliationLog.recordOriginalFailure(reasonOf(discrepancyType, userId));
-                reconciliationLogRepository.save(reconciliationLog);
-                log.error("🚨 정책 id={} {} 드리프트 등록 - userId={}, reconciliation_log.id={}",
-                        policyId, discrepancyType, userId, reconciliationLog.getId());
-            } catch (Exception e) {
-                // 여기서마저 실패하면 이 드리프트는 다음 회차 CSV로만 남는다 — 최소한 로그로는
-                // 추적 가능하게 CRITICAL로 남긴다(KafkaCouponEventProducer.recordPublishFailure와
-                // 동일한 이유).
-                log.error("[Verification] CRITICAL: {} 드리프트를 reconciliation_log에 적재하지 못함 "
-                                + "- policyId={}, userId={}", discrepancyType, policyId, userId, e);
+
+            if (!toSave.isEmpty()) {
+                reconciliationLogRepository.saveAll(toSave);
+                registered += toSave.size();
             }
+        }
+
+        if (registered > 0 || failed > 0) {
+            log.error("🚨 정책 id={} {} 드리프트 {}건 신규 등록(이미 등록됨 {}건, 적재 실패 {}건) "
+                            + "- reconciliation_log(ISSUE_REPROCESS)에 적재, 자동 재발급 없음",
+                    policyId, discrepancyType, registered, alreadyRegistered, failed);
         }
     }
 

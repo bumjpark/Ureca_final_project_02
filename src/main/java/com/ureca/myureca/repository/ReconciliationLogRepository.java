@@ -6,6 +6,7 @@ import com.ureca.myureca.domain.reconciliation.ReconciliationType;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -59,6 +60,15 @@ public interface ReconciliationLogRepository extends JpaRepository<Reconciliatio
 
     /** DLT 소비 컨슈머의 인박스 체크(1차 방어)용. */
     boolean existsByEventKey(String eventKey);
+
+    /**
+     * 드리프트 등록({@code VerificationAsyncTrigger.registerRedisOnlyDrift})용 배치 인박스 체크.
+     * 건마다 {@link #existsByEventKey}를 호출하면 미아 예약이 1만 건 쌓인 상태에서 SELECT만
+     * 1만 번 나가면서 스케줄러 스레드를 수 분간 붙잡는다(2026-08-31 실측: 11,000건 등록에 2분).
+     * {@code CouponHistoryRepository.findExistingRequestIds}와 같은 방식으로 한 번의 IN 조회로 묶는다.
+     */
+    @Query("select rl.eventKey from ReconciliationLog rl where rl.eventKey in :eventKeys")
+    Set<String> findExistingEventKeys(@Param("eventKeys") Collection<String> eventKeys);
 
     /** 발급 접수(receiptId) 상태 조회용 — receiptId를 eventKey로 쓰는 EVENT_REPUBLISH 건이
      *  있는지 확인해, "아직 처리 중"과 "재처리가 필요한 실패"를 구분한다. */
