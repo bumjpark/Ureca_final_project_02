@@ -24,6 +24,8 @@ import lombok.extern.slf4j.Slf4j;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    private static final String INVALID_REQUEST = "INVALID_REQUEST";
+
     @ExceptionHandler(UserNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleUserNotFound(UserNotFoundException e) {
         log.warn("user not found. userId={}", e.getUserId());
@@ -38,7 +40,7 @@ public class GlobalExceptionHandler {
                 .body(ErrorResponse.of(
                         HttpStatus.BAD_REQUEST.value(),
                         "요청 파라미터 '" + e.getName() + "' 의 값이 올바르지 않습니다.",
-                        "INVALID_REQUEST"));
+                        INVALID_REQUEST));
     }
 
     @ExceptionHandler(CouponSoldOutException.class)
@@ -121,13 +123,13 @@ public class GlobalExceptionHandler {
                 .body(ErrorResponse.of(
                         HttpStatus.BAD_REQUEST.value(),
                         "'" + e.getHeaderName() + "' 헤더는 필수입니다.",
-                        "INVALID_REQUEST"));
+                        INVALID_REQUEST));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ErrorResponse> handleIllegalArgument(IllegalArgumentException e) {
         return ResponseEntity.badRequest()
-                .body(ErrorResponse.of(HttpStatus.BAD_REQUEST.value(), e.getMessage(), "INVALID_REQUEST"));
+                .body(ErrorResponse.of(HttpStatus.BAD_REQUEST.value(), e.getMessage(), INVALID_REQUEST));
     }
     @ExceptionHandler(VerificationNotAllowedException.class)
     public ResponseEntity<ErrorResponse> handleVerificationNotAllowed(VerificationNotAllowedException e) {
@@ -213,7 +215,7 @@ public class GlobalExceptionHandler {
                 HttpStatus.BAD_REQUEST.value(),
                 "입력값이 올바르지 않습니다",
                 errors,
-                "INVALID_REQUEST");
+                INVALID_REQUEST);
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
     }
 
@@ -229,7 +231,7 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(ErrorResponse.of(HttpStatus.BAD_REQUEST.value(),
                         "필수 파라미터가 누락되었습니다: " + e.getParameterName(),
-                        "INVALID_REQUEST"));
+                        INVALID_REQUEST));
     }
 
     /**
@@ -238,7 +240,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ErrorResponse> handleMessageNotReadable(HttpMessageNotReadableException e) {
         return ResponseEntity.badRequest()
-                .body(ErrorResponse.of(HttpStatus.BAD_REQUEST.value(), "요청 본문을 읽을 수 없습니다.", "INVALID_REQUEST"));
+                .body(ErrorResponse.of(HttpStatus.BAD_REQUEST.value(), "요청 본문을 읽을 수 없습니다.", INVALID_REQUEST));
     }
 
     /** 지원하지 않는 HTTP 메서드로 호출한 경우 */

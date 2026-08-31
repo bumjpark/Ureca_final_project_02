@@ -51,6 +51,9 @@ import tools.jackson.databind.ObjectMapper;
 @Component
 public class VerificationAsyncTrigger {
 
+    /** 불일치 유형 코드 — 미아 예약(reserved ZSET에만 남은 예약). */
+    private static final String RESERVED_STALE = "RESERVED_STALE";
+
     private final CouponIssueRepository couponIssueRepository;
     private final VerificationReportRepository verificationReportRepository;
     private final StringRedisTemplate redisTemplate;
@@ -201,7 +204,7 @@ public class VerificationAsyncTrigger {
         if (!staleReservedUserIds.isEmpty()) {
             log.error("🚨 정책 id={} 미아 예약(stale RESERVED) {}건 — 재고만 깎이고 발급이 확정되지 않은 유저",
                     policyId, staleReservedUserIds.size());
-            registerRedisOnlyDrift(policyId, staleReservedUserIds, runAt, "RESERVED_STALE");
+            registerRedisOnlyDrift(policyId, staleReservedUserIds, runAt, RESERVED_STALE);
         }
 
         Integer currentRedisStock = readRedisStockCounter(policyId);
@@ -336,7 +339,7 @@ public class VerificationAsyncTrigger {
         // "이미 다 등록해둔 1,000건"을 위해 60초마다 영원히 같은 무거운 조회를 반복했다.
         // 이미 등록된 eventKey는 인덱스 조회 한 번으로 싸게 걸러지므로, 여기서 먼저 잘라내고
         // 새로 볼 게 없으면 곧바로 빠져나간다(2026-08-31).
-        Set<Long> unregistered = filterUnregistered(policyId, staleReservedUserIds, "RESERVED_STALE");
+        Set<Long> unregistered = filterUnregistered(policyId, staleReservedUserIds, RESERVED_STALE);
         if (unregistered.isEmpty()) {
             return 0;
         }
@@ -348,7 +351,7 @@ public class VerificationAsyncTrigger {
         }
         log.error("🚨 정책 id={} 미아 예약(stale RESERVED) 신규 {}건 — 재고만 깎이고 발급이 확정되지 않은 유저",
                 policyId, unregistered.size());
-        registerRedisOnlyDrift(policyId, unregistered, LocalDateTime.now(), "RESERVED_STALE");
+        registerRedisOnlyDrift(policyId, unregistered, LocalDateTime.now(), RESERVED_STALE);
         return unregistered.size();
     }
 
@@ -545,7 +548,7 @@ public class VerificationAsyncTrigger {
     }
 
     private String reasonOf(String discrepancyType, Long userId) {
-        if ("RESERVED_STALE".equals(discrepancyType)) {
+        if (RESERVED_STALE.equals(discrepancyType)) {
             return "검증 배치가 감지한 미아 예약 — userId=" + userId + "가 재고를 선점한 채 임계 시간("
                     + staleReservedThreshold + ")을 넘도록 확정되지 않음(발급 이벤트 유실 추정). "
                     + "재처리하면 이 유저에게 쿠폰이 발급된다";
@@ -727,7 +730,7 @@ public class VerificationAsyncTrigger {
             }
 
             // Check D(미아 예약): 재고만 깎이고 발급이 확정되지 않은 유저.
-            appendUserRows(csv, policyId, findings.staleReservedUserIds(), "RESERVED_STALE", runAt);
+            appendUserRows(csv, policyId, findings.staleReservedUserIds(), RESERVED_STALE, runAt);
 
             try {
                 Files.createDirectories(reportDir);

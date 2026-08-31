@@ -41,6 +41,16 @@ public class ScaleTestService {
     public static final String TITLE_PREFIX = "scale-3m-";
     private static final String USER_EMAIL_PREFIX = "scaletest-user-";
 
+    // 네이티브 쿼리 바인딩 파라미터 이름 / 반복되는 SQL 조각 (문자열 리터럴 중복 제거)
+    private static final String PARAM_PREFIX = "prefix";
+    private static final String PARAM_POLICY_ID = "policyId";
+    private static final String PARAM_USER_FROM = "userFrom";
+    private static final String PARAM_USER_TO = "userTo";
+    private static final String QUEUE_JOIN_LOG_INSERT_SQL =
+            "insert into queue_join_log (coupon_policy_id, user_id, status, queue_rank, joined_at, created_at) ";
+    private static final String USERS_BETWEEN_USER_RANGE_SQL =
+            "from users where id between :userFrom and :userTo";
+
     /** 0~9 열 행 10개짜리 파생 테이블 — 자릿수 크로스조인 숫자 생성기의 building block.
      *  {@code String.formatted(alias)}로 alias만 바꿔 여러 개 붙인다. */
     private static final String DIGIT_TABLE_SQL =
@@ -288,7 +298,7 @@ public class ScaleTestService {
                 .setParameter("ids", policyIds)
                 .executeUpdate();
         entityManager.createNativeQuery("delete from users where email like :prefix")
-                .setParameter("prefix", USER_EMAIL_PREFIX + "%")
+                .setParameter(PARAM_PREFIX, USER_EMAIL_PREFIX + "%")
                 .executeUpdate();
 
         for (Long policyId : policyIds) {
@@ -349,13 +359,13 @@ public class ScaleTestService {
                                 + ", " + DIGIT_TABLE_SQL.formatted("d7")
                                 + ") t "
                                 + "where n <= :total")
-                .setParameter("prefix", USER_EMAIL_PREFIX)
+                .setParameter(PARAM_PREFIX, USER_EMAIL_PREFIX)
                 .setParameter("total", total)
                 .executeUpdate();
 
         Object minId = entityManager.createNativeQuery(
                         "select min(id) from users where email like :prefix")
-                .setParameter("prefix", USER_EMAIL_PREFIX + "%")
+                .setParameter(PARAM_PREFIX, USER_EMAIL_PREFIX + "%")
                 .getSingleResult();
         return ((Number) minId).longValue();
     }
@@ -484,23 +494,23 @@ public class ScaleTestService {
         long victimFrom = issuedTo - FCFS_GHOST_FRONTRUNNER + 1; // 발급자 중 마지막 1,000명
         long normalTo = victimFrom - 1; // 발급자 중 앞 99,000명의 끝
         entityManager.createNativeQuery(
-                        "insert into queue_join_log (coupon_policy_id, user_id, status, queue_rank, joined_at, created_at) "
+                        QUEUE_JOIN_LOG_INSERT_SQL
                                 + "select :policyId, id, 'ADMITTED', (id - :ghostFrom + 1), now(), now() "
                                 + "from users where id between :ghostFrom and :ghostTo")
-                .setParameter("policyId", policyId).setParameter("ghostFrom", ghostFrom).setParameter("ghostTo", ghostTo)
+                .setParameter(PARAM_POLICY_ID, policyId).setParameter("ghostFrom", ghostFrom).setParameter("ghostTo", ghostTo)
                 .executeUpdate();
         entityManager.createNativeQuery(
-                        "insert into queue_join_log (coupon_policy_id, user_id, status, queue_rank, joined_at, created_at) "
+                        QUEUE_JOIN_LOG_INSERT_SQL
                                 + "select :policyId, id, 'ADMITTED', (id - :userFrom + 1 + :ghostCount), now(), now() "
                                 + "from users where id between :userFrom and :normalTo")
-                .setParameter("policyId", policyId).setParameter("userFrom", userFrom)
+                .setParameter(PARAM_POLICY_ID, policyId).setParameter(PARAM_USER_FROM, userFrom)
                 .setParameter("normalTo", normalTo).setParameter("ghostCount", FCFS_GHOST_FRONTRUNNER)
                 .executeUpdate();
         entityManager.createNativeQuery(
-                        "insert into queue_join_log (coupon_policy_id, user_id, status, queue_rank, joined_at, created_at) "
+                        QUEUE_JOIN_LOG_INSERT_SQL
                                 + "select :policyId, id, 'ADMITTED', (id - :victimFrom + 1 + :cutoff), now(), now() "
                                 + "from users where id between :victimFrom and :issuedTo")
-                .setParameter("policyId", policyId).setParameter("victimFrom", victimFrom)
+                .setParameter(PARAM_POLICY_ID, policyId).setParameter("victimFrom", victimFrom)
                 .setParameter("issuedTo", issuedTo).setParameter("cutoff", (long) FCFS_ISSUED)
                 .executeUpdate();
 
@@ -526,8 +536,8 @@ public class ScaleTestService {
         entityManager.createNativeQuery(
                         "insert into coupon_issue (coupon_policy_id, user_id, receipt_id, status, issued_at, created_at, updated_at) "
                                 + "select :policyId, id, concat('rcpt_scale_', :policyId, '_', id), 'ISSUED', now(), now(), now() "
-                                + "from users where id between :userFrom and :userTo")
-                .setParameter("policyId", policyId).setParameter("userFrom", userFrom).setParameter("userTo", userTo)
+                                + USERS_BETWEEN_USER_RANGE_SQL)
+                .setParameter(PARAM_POLICY_ID, policyId).setParameter(PARAM_USER_FROM, userFrom).setParameter(PARAM_USER_TO, userTo)
                 .executeUpdate();
     }
 
@@ -536,7 +546,7 @@ public class ScaleTestService {
                         "insert into coupon_history (coupon_issue_id, request_id, prev_status, new_status, created_at) "
                                 + "select id, receipt_id, 'NONE', 'ISSUED', issued_at "
                                 + "from coupon_issue where coupon_policy_id = :policyId")
-                .setParameter("policyId", policyId)
+                .setParameter(PARAM_POLICY_ID, policyId)
                 .executeUpdate();
     }
 
@@ -549,17 +559,17 @@ public class ScaleTestService {
         entityManager.createNativeQuery(
                         "insert into coupon_issue (coupon_policy_id, user_id, receipt_id, status, issued_at, used_at, created_at, updated_at) "
                                 + "select :policyId, id, concat('rcpt_scale_', :policyId, '_', id), 'USED', now(), now(), now(), now() "
-                                + "from users where id between :userFrom and :userTo")
-                .setParameter("policyId", policyId).setParameter("userFrom", userFrom).setParameter("userTo", userTo)
+                                + USERS_BETWEEN_USER_RANGE_SQL)
+                .setParameter(PARAM_POLICY_ID, policyId).setParameter(PARAM_USER_FROM, userFrom).setParameter(PARAM_USER_TO, userTo)
                 .executeUpdate();
     }
 
     private void insertQueueJoinLog(Long policyId, long userFrom, long userTo, long rankBase) {
         entityManager.createNativeQuery(
-                        "insert into queue_join_log (coupon_policy_id, user_id, status, queue_rank, joined_at, created_at) "
+                        QUEUE_JOIN_LOG_INSERT_SQL
                                 + "select :policyId, id, 'ADMITTED', (id - :userFrom + :rankBase), now(), now() "
-                                + "from users where id between :userFrom and :userTo")
-                .setParameter("policyId", policyId).setParameter("userFrom", userFrom).setParameter("userTo", userTo)
+                                + USERS_BETWEEN_USER_RANGE_SQL)
+                .setParameter(PARAM_POLICY_ID, policyId).setParameter(PARAM_USER_FROM, userFrom).setParameter(PARAM_USER_TO, userTo)
                 .setParameter("rankBase", rankBase)
                 .executeUpdate();
     }
@@ -567,7 +577,7 @@ public class ScaleTestService {
     private long countCouponIssue(Long policyId) {
         Object count = entityManager.createNativeQuery(
                         "select count(*) from coupon_issue where coupon_policy_id = :policyId")
-                .setParameter("policyId", policyId)
+                .setParameter(PARAM_POLICY_ID, policyId)
                 .getSingleResult();
         return ((Number) count).longValue();
     }
