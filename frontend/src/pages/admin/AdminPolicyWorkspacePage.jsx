@@ -1,6 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { getCouponIssuanceMetrics, getCouponStatus, getPolicy } from '../../lib/endpoints.js';
+import {
+  getCouponIssuanceMetrics,
+  getCouponStatus,
+  getPolicy,
+  listReconciliationLogs,
+} from '../../lib/endpoints.js';
 import { useAdminPolicies } from '../../lib/hooks.js';
 import { Badge, Card, LoadingBlock, PageHeader, ProgressBar, StatTile, Tabs } from '../../components/ui.jsx';
 import IssuanceChart from '../../components/IssuanceChart.jsx';
@@ -8,6 +13,7 @@ import PolicyPicker from '../../components/admin/PolicyPicker.jsx';
 import InfraStatusBar from '../../components/admin/InfraStatusBar.jsx';
 import { QueueControlPanel } from './AdminQueueControlPage.jsx';
 import { VerificationPanel } from './AdminVerificationPage.jsx';
+import { ReconciliationPanel } from './AdminReconciliationPage.jsx';
 import { comma, policyStatusBadge } from '../../lib/format.js';
 
 const TIMELINE_SECONDS = 120;
@@ -238,13 +244,40 @@ function ElapsedCard({ label, ms, sub, desc, source }) {
   );
 }
 
-// 부하테스트·재처리는 이 작업 공간에서 뺐다 — 부하테스트는 화면이 아니라 CLI(k6)로 돌리고,
-// 재처리는 특정 정책이 아니라 전체를 훑어보는 작업이라 전역 화면(/admin/reconciliation,
-// /admin/load-test)에 그대로 남아있다. 그쪽 패널 컴포넌트도 각 페이지에 그대로 있다.
+// 재처리 탭에 "미해결 몇 건" 뱃지를 붙이기 위한 가벼운 카운트 조회. FAILED/PENDING 각각
+// size=1로만 물어 totalElements(전체 건수)를 얻는다 — 목록 자체는 필요 없다.
+//
+// policyId로 좁히지 않는다: 이 큐에 쌓이는 주력 두 타입이 구조적으로 발급 행(coupon_issue)을
+// 못 가져서(EVENT_REPUBLISH는 발행 실패 시점에 아직 발급 전, REDIS_ONLY 드리프트는 애초에
+// "DB엔 없는" 건이다) 정책으로 좁히면 언제나 0건이 된다. 전체 큐 기준으로 센다.
+function useUnresolvedReconciliationCount() {
+  const failedQ = useQuery({
+    queryKey: ['reconciliation-count', 'FAILED'],
+    queryFn: () => listReconciliationLogs({ status: 'FAILED', page: 0, size: 1 }),
+    refetchInterval: 5000,
+  });
+  const pendingQ = useQuery({
+    queryKey: ['reconciliation-count', 'PENDING'],
+    queryFn: () => listReconciliationLogs({ status: 'PENDING', page: 0, size: 1 }),
+    refetchInterval: 5000,
+  });
+  return (failedQ.data?.totalElements ?? 0) + (pendingQ.data?.totalElements ?? 0);
+}
+
+// 부하테스트는 이 작업 공간에서 뺐다 — 화면이 아니라 CLI(k6)로 돌리기 때문이고, 패널
+// 컴포넌트는 전역 화면(/admin/load-test)에 그대로 있다.
+//
+// 재처리는 되돌렸다: Kafka 장애 시연에서 "발행 실패건이 쌓였다가 자동 재발행으로 빠지는" 과정을
+// 정책 화면을 떠나지 않고 그대로 보여줘야 하고, 탭 라벨의 미해결 건수 뱃지가 그 진행을 실시간으로
+// 드러낸다. 전역 화면(/admin/reconciliation)도 그대로 있다.
+//
+// 단 이 탭은 정책으로 좁히지 않고 전체 큐를 보여준다(위 카운트 훅 주석 참고) — 좁히면 항상
+// 0건이라 탭이 있으나 마나가 된다. 그래서 패널에 policyId를 넘기지 않는다.
 const TABS = [
   { value: 'status', label: '현황' },
   { value: 'queue', label: '대기열' },
   { value: 'verification', label: '정합성 검증' },
+  { value: 'reconciliation', label: '재처리' },
 ];
 
 export default function AdminPolicyWorkspacePage() {
@@ -252,13 +285,18 @@ export default function AdminPolicyWorkspacePage() {
   const policyId = Number(policyIdParam);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  // 없어진 탭(load-test/reconciliation)을 가리키는 예전 북마크는 현황으로 되돌린다 —
+  // 없어진 탭(load-test)을 가리키는 예전 북마크는 현황으로 되돌린다 —
   // 안 그러면 탭 바만 뜨고 본문이 통째로 비어 보인다.
   const requestedTab = searchParams.get('tab');
   const tab = TABS.some((t) => t.value === requestedTab) ? requestedTab : 'status';
 
   const policiesQ = useAdminPolicies();
   const policyQ = useQuery({ queryKey: ['admin-policy', policyId], queryFn: () => getPolicy(policyId) });
+  const unresolvedCount = useUnresolvedReconciliationCount();
+
+  const tabOptions = TABS.map((t) =>
+    t.value === 'reconciliation' && unresolvedCount > 0 ? { ...t, label: `재처리 (${unresolvedCount})` } : t,
+  );
 
   return (
     <div className="flex flex-col gap-4">
@@ -277,11 +315,12 @@ export default function AdminPolicyWorkspacePage() {
         }
       />
 
-      <Tabs options={TABS} value={tab} onChange={(v) => setSearchParams({ tab: v })} />
+      <Tabs options={tabOptions} value={tab} onChange={(v) => setSearchParams({ tab: v })} />
 
       {tab === 'status' && <StatusTab policyId={policyId} policy={policyQ.data} />}
       {tab === 'queue' && <QueueControlPanel policyId={policyId} allowGlobalToggle={false} />}
       {tab === 'verification' && <VerificationPanel policyId={policyId} />}
+      {tab === 'reconciliation' && <ReconciliationPanel />}
     </div>
   );
 }

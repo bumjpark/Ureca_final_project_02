@@ -41,14 +41,29 @@ public interface ReconciliationLogRepository extends JpaRepository<Reconciliatio
 
     /**
      * 재처리 이력 목록 조회 — policyId/type/status 전부 선택 필터(null이면 그 조건은 무시).
-     * policyId는 {@code couponIssue.couponPolicy.id}로 조인하므로, couponIssue가 없는 로그
-     * (예: 특정 발급 건에 안 묶이는 REDIS_RECOVER 등)는 policyId를 지정하면 결과에서 빠진다.
      * 예전에는 policyId 없이 type/status 조합별 파생 메서드 4개를 따로 두고 서비스에서
      * if/else로 골랐는데, 필터 차원이 하나(policyId) 늘면서 조합이 8가지로 늘어나 하나의
      * nullable-파라미터 쿼리로 통합했다.
+     *
+     * <p><b>{@code left join}을 명시하는 이유</b>(2026-08-31 버그 수정): 예전에는 where 절에서
+     * {@code rl.couponIssue.couponPolicy.id}처럼 경로를 그대로 썼는데, JPQL의 암시적 조인은
+     * {@code :policyId}가 null이어도 항상 <b>INNER JOIN</b>으로 생성된다. 그래서
+     * {@code coupon_issue_id}가 null인 로그가 <b>필터와 무관하게 전부 결과에서 빠졌다</b> —
+     * 재처리 화면이 어떤 필터를 걸어도 언제나 "대상 없음"으로 보였다(실측: DB에 8,282건이
+     * 있는데 무필터 조회가 0건).
+     *
+     * <p>그리고 이건 예외적인 케이스가 아니다. 실제로 이 테이블에 쌓이는 주력 두 타입이 모두
+     * {@code couponIssue}를 못 가진다 — {@code EVENT_REPUBLISH}는 발행 실패 시점에 아직 발급
+     * 자체가 안 됐고({@code KafkaCouponEventProducer.recordPublishFailure}), REDIS_ONLY 드리프트로
+     * 등록되는 {@code ISSUE_REPROCESS}도 "Redis엔 있는데 DB엔 없는" 건이라 마찬가지다.
+     *
+     * <p>다만 {@code policyId}를 <b>지정하면</b> 이 로그들은 여전히 빠진다(정책을 알 방법이
+     * 없으므로). 정책 단위로 좁혀 보는 화면에서는 그 점을 감안해야 한다.
      */
     @Query("select rl from ReconciliationLog rl "
-            + "where (:policyId is null or rl.couponIssue.couponPolicy.id = :policyId) "
+            + "left join rl.couponIssue ci "
+            + "left join ci.couponPolicy cp "
+            + "where (:policyId is null or cp.id = :policyId) "
             + "and (:type is null or rl.type = :type) "
             + "and (:status is null or rl.status = :status) "
             + "order by rl.createdAt desc")
