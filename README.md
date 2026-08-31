@@ -1,64 +1,112 @@
-# Ureca_final_project_02
+<!-- ===================== HEADER ===================== -->
+<div align="center">
 
-대규모 트래픽 선착순 쿠폰 발급 시스템 (MySQL, Redis, Kafka)
+<img src="https://capsule-render.vercel.app/api?type=waving&color=0:6DB33F,100:D82C20&height=220&section=header&text=대규모%20트래픽%20선착순%20쿠폰%20발급%20시스템&fontSize=34&fontColor=ffffff&fontAlignY=38&desc=Redis%20Lua%20·%20Kafka%20비동기%20영속화%20·%20자가복구%20·%20동시성%20제한%20대기열&descSize=16&descAlignY=58" width="100%" />
 
-## 로컬 개발 환경 세팅 (팀원 온보딩)
+**LG유플러스 유레카 백엔드 개발자(비대면) 종합프로젝트 · 2조 「투게더」**
 
-DB/Redis/Kafka는 각자 로컬 docker로 띄웁니다. (중앙 서버 없이 각자 컴퓨터에서 독립적으로 개발)
-스키마는 JPA `ddl-auto: update`로 각자 엔티티 기준으로 자동 생성됩니다.
+<br/>
 
-```bash
-# 1. 환경변수 파일 생성 후 값 채우기
-cp .env.example .env
-#   MYSQL_ROOT_PASSWORD, MYSQL_PASSWORD 는 원하는 값으로 직접 채워주세요.
+![Java](https://img.shields.io/badge/Java-21-007396?style=for-the-badge&logo=openjdk&logoColor=white)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.0-6DB33F?style=for-the-badge&logo=springboot&logoColor=white)
+![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1?style=for-the-badge&logo=mysql&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-7-DC382D?style=for-the-badge&logo=redis&logoColor=white)
+![Apache Kafka](https://img.shields.io/badge/Apache%20Kafka-3.9-231F20?style=for-the-badge&logo=apachekafka&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
+![k6](https://img.shields.io/badge/k6-7D64FF?style=for-the-badge&logo=k6&logoColor=white)
+![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black)
 
-# 2. 인프라(MySQL/Redis/Kafka) 기동
-docker compose up -d
+</div>
 
-# 3. 애플리케이션 실행
-./gradlew bootRun
-```
+<br/>
 
-- Kafka UI: http://localhost:8090
-- `.env`는 개인 로컬 값이라 git에 커밋되지 않습니다. 새로 값이 필요해지면 `.env.example`도 같이 업데이트해주세요.
-test
+## 🔖 목차
 
----
+- [프로젝트 소개]
+- [팀 소개]
+- [기술 스택]
+- [요구사항 요약]
+- [ERD]
+- [시스템 아키텍처]
+- [프로젝트 구조]
+- [주요 기능 / API]
+- [실행 방법]
+- [부하 테스트]
+- [정합성 검증]
+- [테스트]
 
-# 대규모 트래픽 선착순 쿠폰 발급 시스템
+<br/>
 
-> LG유플러스 유레카 백엔드 개발자(비대면) 종합프로젝트 · 2조 "투게더"
+## 📌 프로젝트 소개
 
-## 0. 팀 정보
+다수 사용자가 동시에 몰리는 선착순 이벤트에서 **재고 초과·부족 발급 0건**과 **1인 1매 제한**을
+DB 병목 없이 보장하는 것을 목표로 한 쿠폰 발급 시스템입니다.
 
-| 항목 | 내용 |
+| 구분 | 내용 |
 |---|---|
-| 팀명 | 2조 · 투게더 |
-| 조장 | 박종범 |
-| 조원 | 이용재, 이헌진, 정문구, 박찬영 |
-| 과정 | LG유플러스 유레카 백엔드 개발자(비대면) |
+| **핵심 목표** | 20,000건 동시 요청에서 오버셀 0건 · 이력-재고 불일치 0건 |
+| **접근 방식** | Redis Lua 원자적 처리로 정합성 보장, Kafka로 DB 쓰기 비동기 분리 |
+| **안전망** | 재조정 스케줄러 + DLT 재처리 + Redis 전체 유실 시 DB 기준 복구 |
+| **유량 제어** | "속도 제한"이 아닌 "동시성 제한" 기반의 이벤트 드리븐 대기열 |
+| **성과** | 응답 지연 최댓값 **6.24s → 43.88ms** (2단계 발급 재설계) |
 
----
+<br/>
 
-## 1. 프로젝트 개요
+## 👥 팀 소개
 
-### 주제
-**대규모 트래픽 선착순 쿠폰 발급 시스템**
+<table>
+<tr>
+<td align="center"><a href="https://github.com/bumjpark"><img src="https://github.com/bumjpark.png" width="100px;" alt=""/><br/><sub><b>박종범</b></sub></a><br/><sub>팀장</sub></td>
+<td align="center"><a href="https://github.com/YJ720"><img src="https://github.com/YJ720.png" width="100px;" alt=""/><br/><sub><b>이용재</b></sub></a><br/><sub>팀원</sub></td>
+<td align="center"><a href="https://github.com/jetleetop"><img src="https://github.com/jetleetop.png" width="100px;" alt=""/><br/><sub><b>이헌진</b></sub></a><br/><sub>팀원</sub></td>
+<td align="center"><a href="https://github.com/Jmg9808"><img src="https://github.com/Jmg9808.png" width="100px;" alt=""/><br/><sub><b>정문구</b></sub></a><br/><sub>팀원</sub></td>
+<td align="center"><a href="https://github.com/pcy9849-blip"><img src="https://github.com/pcy9849-blip.png" width="100px;" alt=""/><br/><sub><b>박찬영</b></sub></a><br/><sub>팀원</sub></td>
+</tr>
+</table>
 
-### 목적
-다수 사용자가 동시에 몰리는 선착순 이벤트에서 쿠폰 재고가 초과·부족 발급되지 않도록 **동시성 문제를 해결**하고, **1인 1매 제한을 지키면서 DB 병목 없이 처리**하는 아키텍처를 구현·검증한다.
 
-### 목표
-- 전원 Redis/Kafka 실전 경험 확보
-- 요구사항 분석 역량 강화
-- Jira 기반 애자일 협업 프로세스 체험
 
----
+<br/>
 
-## 2. 요구사항 요약
+## 🛠️ 기술 스택
+
+### Backend
+![Java](https://img.shields.io/badge/Java%2021-007396?style=flat-square&logo=openjdk&logoColor=white)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot%204.1-6DB33F?style=flat-square&logo=springboot&logoColor=white)
+![Spring Data JPA](https://img.shields.io/badge/Spring%20Data%20JPA-6DB33F?style=flat-square&logo=spring&logoColor=white)
+![Spring Kafka](https://img.shields.io/badge/Spring%20for%20Kafka-6DB33F?style=flat-square&logo=springboot&logoColor=white)
+
+### Data / Messaging
+![MySQL](https://img.shields.io/badge/MySQL%208-4479A1?style=flat-square&logo=mysql&logoColor=white)
+![Flyway](https://img.shields.io/badge/Flyway-CC0200?style=flat-square&logo=flyway&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis%207-DC382D?style=flat-square&logo=redis&logoColor=white)
+![Apache Kafka](https://img.shields.io/badge/Apache%20Kafka%203.9-231F20?style=flat-square&logo=apachekafka&logoColor=white)
+
+### Infra / Test
+![Docker](https://img.shields.io/badge/Docker%20Compose-2496ED?style=flat-square&logo=docker&logoColor=white)
+![Nginx](https://img.shields.io/badge/Nginx-009639?style=flat-square&logo=nginx&logoColor=white)
+![k6](https://img.shields.io/badge/k6-7D64FF?style=flat-square&logo=k6&logoColor=white)
+![Gradle](https://img.shields.io/badge/Gradle-02303A?style=flat-square&logo=gradle&logoColor=white)
+
+### Frontend
+![React](https://img.shields.io/badge/React%2019-61DAFB?style=flat-square&logo=react&logoColor=black)
+![Vite](https://img.shields.io/badge/Vite%207-646CFF?style=flat-square&logo=vite&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind%20CSS%204-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white)
+![React Query](https://img.shields.io/badge/TanStack%20Query%205-FF4154?style=flat-square&logo=reactquery&logoColor=white)
+
+### Collaboration
+![GitHub](https://img.shields.io/badge/GitHub-181717?style=flat-square&logo=github&logoColor=white)
+![Jira](https://img.shields.io/badge/Jira-0052CC?style=flat-square&logo=jira&logoColor=white)
+
+<br/>
+
+## 📋 요구사항 요약
+
+<details>
+<summary><b>요구사항 상세 펼쳐보기</b></summary>
+<div markdown="1">
 
 ### 2-1. 기능 요구사항 (FR)
-
 | ID | 분류 | 요구사항 |
 |---|---|---|
 | FR-1 | 사전 조건 / 데이터 | 가상 회원 정보 기반으로 운영 (회원가입·로그인 기능 미구현) |
@@ -79,10 +127,9 @@ test
 | FR-16 | 쿠폰 정합성 검증 | 검증 결과를 리포트(CSV 등) 형태로 자동 생성 |
 
 ### 2-2. 비기능 요구사항 (NFR)
-
 | ID | 분류 | 요구사항 |
 |---|---|---|
-| NFR-1 | 정확성/일관성 | 재고 초과 발급 0건, 이력-재고 불일치 0건 — **프로젝트 최우선 지표** |
+| NFR-1 | 정확성/일관성 | 재고 초과 발급 0건, 이력-재고 불일치 0건 — 프로젝트 최우선 지표 |
 | NFR-2 | 동시성 | 동일 재고 카운터에 대한 20,000건 동시 요청을 경합 없이 원자적으로 처리 |
 | NFR-3 | 응답 지연 최소화 | 발급 응답은 동기로 즉시 처리, 이력 적재는 비동기로 분리 (처리 속도 자체는 평가 대상 아님) |
 | NFR-4 | 재현성 | 검증 배치는 결정적(deterministic)이며 부작용 없는 순수 집계로 설계 |
@@ -90,8 +137,7 @@ test
 | NFR-6 | 확장 가능한 상태 설계 | 취소 정책이 세분화되어도(발급취소/사용취소 등) 수용 가능한 구조 |
 | NFR-7 | 트래픽 재현 가능성 | 오픈 시각 임박 시점의 트래픽 집중 상황을 재현·측정 가능해야 함 |
 
-### 2-3. 적용 기술 스택
-
+### 2-3. 적용 기술 스택 상세
 | 영역 | 기술 | 확정 여부 | 비고 |
 |---|---|---|---|
 | 원자적 재고/중복 처리 | Redis + Lua Script (EVAL) | ✅ 확정 | 재고 체크 + 중복 체크 + 차감·발급을 하나의 스크립트로 원자 실행. 분산락 불필요 |
@@ -104,174 +150,246 @@ test
 | 데이터베이스 | MySQL | ✅ 확정 | |
 | API 서버 프레임워크 | Java + Spring Boot | ✅ 확정 | |
 | 부하 테스트 도구 | k6 | ✅ 확정 | 평가 대상 아님, 팀 자유 |
-| 더미데이터 생성 방식 | 미정 | ⬜ 미확정 | 유저 100만 + 이력 300만 생성 전략 논의 필요 (Faker 스크립트 vs Stored Procedure) |
-
----
-
-## 3. 현재 아키텍처
-
-지금 구조 — **Redis Lua 원자적 처리 + 비동기(fire-and-forget) Kafka 발행 + 재조정 스케줄러 + `/recover` + 이벤트 기반 동시성 제한 대기열**
 
 
-### 3-1. 아키텍처 설계도
-<img width="1632" height="712" alt="request-flow drawio" src="https://github.com/user-attachments/assets/e742dae3-8027-405f-a2c7-9707022b56b9" />
+</div>
+</details>
+
+<br/>
+
+## 🗄️ ERD
+<div align="center">
+<img width="900" alt="ERD" src="https://github.com/user-attachments/assets/a18d4602-76bd-4731-ac70-70986a33c7c1" />
+</div>
 
 
-### 3-2. 요청 흐름
+| 테이블명 | 설명 |
+|---|---|
+| **`users`** | 쿠폰을 발급받는 유저 정보 |
+| **`coupon_policy`** | 어떤 쿠폰을 얼마나, 언제부터 언제까지 발급할지 정하는 마스터(정책) 테이블 |
+| **`coupon_issue`** | 실제로 유저에게 쿠폰이 발급된 기록 테이블 |
+| **`coupon_history`** | `coupon_issue`의 상태(발급/사용/취소 등)가 바뀔 때마다 남기는 이력 로그 테이블 |
+| **`verification_report`** | 쿠폰이 실제로 맞게 발급됐는지 정합성을 검증한 결과를 남기는 테이블 |
+| **`reconciliation_log`** | 시스템 처리 중 실패하거나 문제가 생긴 건들을 재처리하기 위해 기록해두는 테이블 |
+| **`queue_join_log`** | 대기열에 진입한 유저들의 상태, 대기 순번(Rank), 진입 시간 등을 기록하는 테이블 |
+| **`mock_notification_bulk_job`** | 다수 유저 대상 대량 알림 작업의 전체 진행 상태와 발송 통계(성공/실패)를 관리하는 테이블  |
+| **`mock_notification_log`** | 개별 유저에게 발송된 알림 내역과 발송 결과(상태, 실패 사유 등)를 상세히 기록하는 로그 테이블  |
+| **`coupon_issue_seq`<br>`coupon_history_seq`** | 대량 데이터 삽입 시 성능 최적화를 위해 발급 및 이력 엔티티의 식별자(ID)를 독립적으로 채번하고 관리하는 시퀀스 테이블 |
+<br/>
+
+
+## 🏗️ 시스템 아키텍처
+
+**Redis Lua 원자적 처리 + 비동기(fire-and-forget) Kafka 발행 + 재조정 스케줄러 + `/recover` + 이벤트 기반 동시성 제한 대기열**
+
+<div align="center">
+<img width="900" alt="request-flow" src="https://github.com/user-attachments/assets/e742dae3-8027-405f-a2c7-9707022b56b9" />
+</div>
+
+
+### 📂 프로젝트 구조
+
+## :open_file_folder: 프로젝트 구조
 
 ```
+├── src/main/java/com/ureca/myureca
+│  ├── controller/    REST 엔드포인트
+│  ├── service/     발급·대기열·검증·재처리·복구 로직
+│  ├── consumer/     Kafka Consumer + DLT 재처리
+│  ├── domain/      coupon · queue · reconc
+│  │  ├── coupon/         쿠폰 정책·발급·이력
+│  │  ├── queue/          대기열
+│  │  ├── user/           유저
+│  │  ├── verification/   정합성 검증 리포트
+│  │  ├── reconciliation/ 재처리 로그
+│  │  └── notification/   Mock 알림
+│  ├── config/       Redis/Kafka/Async/Scheduling 등 인프라 설정
+│  ├── dto/          요청/응답 DTO
+│  ├── exception/    커스텀 예외 + GlobalExceptionHandler
+│  ├── repository/   Spring Data JPA 리포지토리
+│  ├── support/      RedisKeys, KafkaConsumerLagChecker 등 공용 유틸
+│  └── util/         MaskingUtils 등
+├── src/main/resources/db/migration/  Flyway 마이그레이션 (V1~V7)
+├── src/test/java/    단위/통합/동시성 테스트
+├── frontend/         React 19 + Vite 프론트엔드
+├── loadtest/         k6 부하테스트 스크립트 (burst-20k.js 등)
+├── docker-compose.yml               기본 인프라(mysql/redis/kafka/kafka-ui) + app
+└── docker-compose.loadtest.yml      k6 부하테스트 오버레이
+```
+
+
+### 요청 흐름
+
 [클라이언트]
-   │
-   │ ① POST /queue/join  (ZADD, userId 기준 멱등 — 새로고침해도 같은 순번 유지)
-   ▼
-[대기열 — Redis ZSET coupon:{eventId}:queue]
-   │
-   │ ② GET /queue/status 폴링 → sequence ≤ admitted_cursor 이면 admitted
-   │    (admitted_cursor: 처리 완료 시 그 자리에서 +1, 이벤트 기반·스케줄러 없음)
-   ▼
-[POST /issue] ── 서버가 admission 여부를 issue() 맨 앞에서 직접 재검증
-   │              (클라이언트가 대기열을 건너뛰어도 차단)
-   ▼
-[Redis Lua Script (coupon_issue.lua)] — 원자적 1회 실행
-   ├─ 재고 체크 (SCARD / 카운터)
-   ├─ 중복 체크 (SISMEMBER: ISSUED SET + RESERVED ZSET)
-   └─ 재고 차감 + RESERVED ZSET 등록 {userId: timestamp}
-   │
-   ├─▶ 즉시 응답 (ACCEPTED) ── 동기 대기 없음
-   │
-   ▼
-[Kafka Producer] fire-and-forget 발행 (ack 대기 없음, 응답 스레드 비차단)
-   │
-   ▼
-[Kafka Consumer] poll 배치 단위로 addBatch/executeBatch (JDBC Batch Insert)
-   │
-   ├─▶ MySQL 저장 성공 시: RESERVED → ISSUED 확정 (Redis)
-   │
-   ▼
-[CouponReconciliationScheduler] 1분마다 RESERVED에 60초 넘게 남은 "미아" 정리·재발행
-   (컨슈머 장애 등으로 확정이 누락된 예약을 자동 복구 — 안전망)
+│ ① POST /api/queue/join (Redis ZSET, userId
+│ 서버가 issue() 진입점에서 입장 여부를 직접 재검증 (대기열 우회 차단)
+▼
+[Redis Lua Script] ── 원자적 1회 실행
+├─ 재고 체크 + 중복 체크(ISSUED SET / RESERVED ZSET)
+└─ 재고 차감 + RESERVED ZSET 등록
+│
+├─▶ 즉시 202 ACCEPTED 응답 (동기 대기 없음)
+▼
+[Kafka Producer] fire-and-forget 발행 (ack 대기 없음)
+▼
+[Kafka Consumer] poll 배치 단위 JDBC Batch Insert → MySQL 저장
+│ 저장 성공 시 RESERVED → ISSUED 확정 (Redis)
+▼
+[Reconciliation Scheduler] RESERVED에 오래 남은 "미아" 예약을 주기적으로 정리·재발행
+[DLT] Consumer 처리 실패 메시지는 Dead Letter Topic으로 이동 후 재처리
+[POST /api/coupons/{eventId}/recover] Redis 전체 유실 시 DB 기준으로 재고·이력 재계산
+(Kafka Consumer lag이 0이 아니면 부분 복구 방지를 위해 즉시 실패)
 
-[/api/coupons/{eventId}/recover] Redis 전체 유실(장애) 시 DB(진실의 원천) 기준으로
-   재고·발급이력 재계산. 단, KafkaConsumerLagChecker로 컨슈머 랙이 0이 아니면
-   Redis 키를 건드리지 않고 즉시 실패 (부분 복구로 인한 데이터 유실 방지)
 
-[/api/coupons/{eventId}/stats] 발급 현황 실시간 조회
-   (redisRemainingStock, redisIssuedUserCount, redisReservedCount,
-    dbIssuedCount, dbDistinctUserCount, oversold, redisDbCountMismatch)
+### 핵심 설계 결정
+
+| # | 결정 | 근거 |
+|---|---|---|
+| 1 | **오버셀 방지는 Lua 스크립트 하나로** | 재고 확인 + 중복 확인 + 차감을 원자 실행 → 분산락 없이 20,000건 동시 요청에서 오버셀 0건 |
+| 2 | **정합성에 동기 대기는 불필요** | `RESERVED → ISSUED` 2단계 + 스케줄러 안전망 → Kafka ack를 기다리지 않고 즉시 응답하면서 메시지 유실도 방지 (지연 6.24s → 43.88ms) |
+| 3 | **정합성과 유량 제어는 별개 계층** | Lua는 "무엇이 맞는 답인가"만, 대기열/admission cursor는 "얼마나 흘려보낼 것인가"만 담당 |
+| 4 | **"속도 제한"이 아니라 "동시성 제한"** | 초당 N명 대신 "지금 몇 명 처리 중인가"라는 실측값 기준 → 값을 잘못 골라도 구조적으로 한도 초과 불가 |
+
+
+### 주요 기능 / API
+
+| 도메인 | 엔드포인트 | 설명 |
+|---|---|---|
+| 대기열 | `POST /api/queue/join`, `GET /api/queue/status` | 입장 순번 발급(멱등) · 입장 여부 폴링 |
+| 쿠폰 발급 | `POST /api/coupon-policies/{policyId}/issue` | 선착순 발급 (202 ACCEPTED + 접수증) |
+| 발급 접수 조회 | `GET /api/coupons/receipt/{receiptId}` | 비동기 발급 처리 상태 조회 |
+| 쿠폰 사용 | `POST /api/coupons/{couponIssueId}/use` | 조건부 UPDATE + Idempotency-Key 멱등 처리 |
+| 내 쿠폰 | `GET /api/users/{userId}/coupons` , `.../coupons/{id}/history` | 보유 쿠폰 · 상태 이력 조회 |
+| 발급 현황 | `GET /api/coupons/{eventId}/stats` | Redis/DB 재고·발급 수 실시간 비교 |
+| 정합성 검증 | `POST /api/admin/verification/run` , `GET /api/admin/verification/reports` | 300만 건 결정적 집계 검증 + CSV 리포트 |
+| 재처리 | `POST /api/admin/reconciliation/retry` , `GET .../logs` | 미아 예약·실패 건 재처리 |
+| Redis 복구 | `POST /api/coupons/{eventId}/recover` | Redis 유실 시 DB 기준 재구성 |
+| 정책 관리 | `/api/admin/coupon-policies` , `/api/admin/queue` | 쿠폰 정책 · 대기열 한도 관리 (admin) |
+| 알림 (Mock) | `/api/mock/notifications` | 외부 알림 연동 Mocking |
+| 헬스체크 | `GET /api/health` | 인프라 상태 |
+
+<br/>
+
+
+## 🚀 실행 방법
+
+### 사전 요구사항
+- JDK 21
+- Docker / Docker Compose
+
+### 1. 환경변수 설정
+
+```bash
+cp .env.example .env
+# MYSQL_ROOT_PASSWORD, MYSQL_PASSWORD 는 직접 채워주세요. (.env 는 git에 커밋되지 않습니다)
 ```
 
+### 2-A. 인프라만 컨테이너 + 앱은 로컬 실행 (개발용)
 
-### 3-3. 핵심 설계 결정 4가지
+```bash
+docker compose up -d mysql redis kafka kafka-ui
+./gradlew bootRun
+```
 
-1. **오버셀 방지의 전부는 Lua 한 줄이다.** 재고 확인 + 중복 확인 + 재고 차감을 Lua 스크립트 하나로 원자 처리해, 별도 분산락 없이도 20,000건 동시 요청에서 오버셀 0건을 보장한다.
+### 2-B. 앱까지 전부 컨테이너로
 
-2. **"정합성 = 동기 대기 필수"라는 전제는 틀렸다.** 발급 상태를 `RESERVED`(임시 예약) → `ISSUED`(DB 확정) 2단계로 분리하고 스케줄러가 뒷받침하면, 응답은 Kafka ack를 기다리지 않고 즉시 나가면서도 메시지 유실 안전망은 그대로 유지된다. 이 재설계 하나로 응답 지연 최댓값이 **6.24초 → 43.88ms**로 개선됐다.
+```bash
+docker compose up -d --build
+```
 
-3. **정합성과 유량 제어는 다른 계층이 담당한다.** Lua 원자적 처리는 "무엇이 맞는 답인가"만 책임지고, "얼마나 흘려보낼 것인가"는 대기열(입장 순번)과 동시성 제한(admission cursor)이 별도로 담당한다.
+### 3. 프론트엔드
 
-4. **"속도 제한"이 아니라 "동시성 제한".** 초당 N명(rate limit)은 사람이 안전한 숫자를 미리 추측해야 하고 틀리면 위험하다. "지금 몇 명 처리 중인가"라는 실측 가능한 값을 기준으로 동시성을 제한하면, 값을 잘못 골라도 한도를 그냥 못 넘기 때문에 구조적으로 안전하다.
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+| 서비스 | 주소 |
+|---|---|
+| 애플리케이션 | http://localhost:8080 |
+| Kafka UI | http://localhost:8090 |
+| 프론트엔드 (dev) | http://localhost:5173 |
+
+<br/>
 
 
-## 4. 질문 목록
+## 🔥 부하 테스트
 
-### 4-1. 기술 질문
+`loadtest/burst-20k.js` — 한 VU가 `queue/join → status 폴링 → issue` 전체 흐름을 1회 수행.
+재고 10,000장 / 동시 20,000 VU / ramp-up 60s 기준으로 초과 발급 0건을 검증합니다.
 
----
+세 가지 실행 방식을 지원합니다 (자세한 옵션은 `loadtest/README.md` 참고):
 
-## 1순위. Redis Lua의 병목 가능성
+**방법 A — 전부 도커 (권장)**: 앱과 k6를 같은 `coupon-network`에 올려 `k6 → coupon-app:8080`을
+직통으로 칩니다. 호스트 `localhost:8080`을 거치면 Docker NAT에서 커넥션 트래킹/임시 포트가
+고갈되어 대량 VU에서 `i/o timeout`이 발생하는데, 이 경로를 아예 없앤 방식입니다.
 
-Redis Lua를 통한 원자적 재고 차감이 트래픽 증가 시 새로운 병목이 될 가능성이 궁금합니다.
+```bash
+C=(docker compose -f docker-compose.yml -f docker-compose.loadtest.yml)
 
-현재는 Lua Script를 통해 재고 차감의 원자성을 보장하고 있는데, Redis는 단일 스레드 기반으로 Lua Script 실행 중 다른 요청의 처리가 지연될 수 있다고 이해하고 있습니다.
+"${C[@]}" up -d --build
+"${C[@]}" logs -f app                       # healthy 될 때까지
 
-- 현재 구조가 결국 **분산 락을 Redis의 직렬화 처리로 대체한 형태**가 될 수 있는지
-- 트래픽이 현재 테스트 규모의 **10배 이상 증가**했을 때 Redis Lua가 실제 병목이 될 가능성
-- 이를 판단하기 위해 어떤 **지표**를 확인해야 하는지
+# k6는 profiles:[loadtest] — --profile을 붙여야 뜬다. POLICY_ID 생략 시 재고 10,000 정책 자동 생성
+"${C[@]}" --profile loadtest run --rm k6 run /scripts/burst-20k.js
 
----
+"${C[@]}" down
+```
 
-## 2순위. Redis ↔ DB 정합성
+> **메모리 주의**: `ramping-vus target=N`은 VU당 ~1~3MB를 그대로 할당합니다(20,000 VU ≈ 20~60GB).
+> Docker Desktop 메모리를 12GB+로 올리고, `coupon-k6`가 `exit 137`이면 OOM — `PEAK`를 낮춰가며
+> (`-e PEAK=3000`부터) 한계를 찾으세요.
 
-Redis에서 재고를 차감한 이후 Kafka Consumer 또는 DB 장애로 영속화에 실패하는 경우, Redis와 DB 간 정합성을 어떻게 보장하고 복구하는 것이 실무적인지 궁금합니다.
+**방법 B — 앱은 도커, k6는 호스트**:
 
-- 예: Redis에서는 쿠폰 재고가 차감되었지만 Kafka Consumer가 장애를 일으켜 DB에 발급 이력이 기록되지 않는 상황
-- 실무에서는 **보상 트랜잭션, 재처리, 멱등성, 정합성 검증 배치** 등의 방식 중 어떤 조합으로 해결하는지
+```bash
+docker compose -f docker-compose.yml -f docker-compose.loadtest.yml up -d --build app
+ulimit -n 200000
+k6 run -e BASE=http://localhost:8080 -e POLICY_ID=1 loadtest/burst-20k.js
+```
 
----
+**방법 C — 앱도 호스트 (개발 중 빠른 반복)**:
 
-## 3순위. 이벤트 순간의 트래픽 스파이크 대응
+```bash
+docker compose up -d
+./gradlew bootRun
+ulimit -n 200000
+k6 run -e BASE=http://localhost:8080 loadtest/burst-20k.js
+```
 
-실제 선착순 이벤트처럼 특정 시점에 트래픽이 순간적으로 급증하는 상황에서는 어떤 계층을 가장 먼저 방어하는지 궁금합니다.
+# 대기열 폴링·재시도까지 포함한 시나리오
+k6 run loadtest/burst-20k-poll-retry.js
 
-- 현재 테스트는 워밍업 이후 부하를 발생시켰지만, 실제 서비스는 이벤트 시작 순간 트래픽이 급격히 증가할 수 있음
-- **Tomcat Thread Pool, HikariCP, Redis, Kafka** 등 각 계층에 어떤 방어선을 두는 것이 일반적인지
-- **Rate Limiting**이나 **대기열**을 어느 단계에 적용하는 것이 효과적인지
+<br/>
 
----
 
-## 4순위. 전체 시스템의 다음 병목
+## ✅ 정합성 검증
 
-현재 구조에서 Redis를 통해 재고 차감 병목을 줄이고, Kafka와 Batch Insert를 통해 DB 쓰기 병목을 분리했는데, 트래픽이 더 증가했을 때 다음 병목은 어느 계층에서 발생할 가능성이 높은지 궁금합니다.
+- `POST /api/admin/verification/run` → 발급 이력·재고 전량을 **부작용 없는 순수 집계**로 대조
+- 재실행 시 항상 동일 결과 (결정적)
+- 불일치 건은 `reports/verification-{id}-{timestamp}.csv` 로 자동 저장
 
-- 후보: **Redis CPU/메모리, Kafka Broker 및 Partition, 네트워크 I/O, DB Batch Insert** 등
-- 실무에서는 어떤 지표를 기준으로 병목 지점을 판단하는지
+<br/>
 
----
 
-## 5순위. 300만 건 정합성 검증
+## 🧪 테스트
 
-대규모 데이터의 정합성을 검증할 때 어느 수준까지 자동화하는 것이 실무적으로 적절한지 궁금합니다.
+```bash
+./gradlew test      # 단위 테스트 (기본)
+```
 
-- 현재 약 300만 건 규모 데이터를 SQL 집계 및 비교로 검증 예정
-- 단순 집계 쿼리만으로 충분한지, 아니면 **Spring Batch** 등 별도 검증 프로그램을 구성해 검증 결과를 리포트 형태로 남기는 것이 일반적인지
+> ⚠️ `./gradlew integrationTest` 는 실제 MySQL/Redis/Kafka에 붙어 Flyway 마이그레이션을
+> 다시 돌립니다. **대상 DB의 데이터가 삭제될 수 있으니** 날아가도 되는 환경에서만 실행하세요.
+> (2026-08-29 개발 DB 유실 사고 이후 기본 실행에서 분리됨)
 
----
+<br/>
 
-## 6순위. 운영 DB에 부하를 주지 않는 정합성 검증
 
-운영 중인 대규모 DB의 정합성을 검증해야 할 경우, 운영 트래픽에 영향을 주지 않으면서도 정확성을 확보하기 위해 실무에서는 어떤 방식을 사용하는지 궁금합니다.
 
-- **Read Replica, 스냅샷, 배치 처리, CDC** 등의 방법 중 상황에 따라 어떻게 선택하는지
+ <img src="https://contrib.rocks/image?repo=bumjpark/Ureca_final_project_02" />
+</a>
 
----
-
-## 7순위. 쿠폰 취소 정책
-
-쿠폰의 **발급 → 사용 → 취소** 상태 전이를 설계할 때:
-
-- 취소된 쿠폰을 기존 발급 건의 **상태 변경**으로 처리하는지, 아니면 기존 쿠폰은 취소 상태로 유지하고 **새로운 쿠폰 발급 건을 생성**하는지
-- 취소로 재고가 반환되는 정책이라면, 반환된 재고를 기존 대기열의 다음 사용자에게 **자동 배정**하는 방식이 일반적인지
-
----
-
-## 8순위. 동시 상태 변경 처리
-
-발급·사용·취소와 같이 동일한 쿠폰의 상태 변경 요청이 동시에 발생할 수 있는 경우:
-
-- **Kafka를 통한 순차 처리**와 **DB의 Optimistic/Pessimistic Lock** 중 어느 계층에 더 강하게 의존하여 데이터 무결성을 보장하는 것이 적절한지
-- 실무에서는 메시지 순서 보장과 DB Lock을 함께 사용하는지, 아니면 특정 계층에 책임을 집중시키는지
-
----
-
-## 9순위. 대기열 새로고침
-
-- 사용자가 대기열에서 대기하는 동안 페이지를 새로고침하거나 재접속하는 경우에도 기존 대기 순번을 유지하고 다시 조회할 수 있도록 설계했는데, 이러한 방식이 실무적인 **대기열 UX 및 서버 설계** 관점에서 적절한지 궁금합니다.
-
----
-
-## 10순위. 부하 테스트 방법론
-- 부하 테스트 시나리오를 설계할 때 Ramping VUs 방식과 Ramping Arrival Rate 방식 중 어떤 것을 사용하는 것이 선착순 이벤트 트래픽 패턴(순간적인 요청 폭주)을 재현하는 데 더 적합한지 궁금합니다.
-- VU 수 기반으로 부하를 조절하는 것과 초당 요청 수(arrival rate) 자체를 직접 제어하는 것이 실제 병목 지점을 찾는 데 어떤 차이를 만드는지도 궁금합니다.
-
----
-
-### 4-2. 평가 질문
-
-1. 명세에 '더미데이터 생성/적재 속도 자체는 평가하지 않는다'고 되어 있는데, 그럼에도 적재 속도를 빠르게 최적화하는 것도 강점/가산점 요소가 될 수 있는지 궁금합니다
-
-2. Redis나 Kafka가 일시적으로 다운되었을 때 요청을 차단하고 DB를 보호하는 서킷 브레이커 같은 방어 로직도 구현해 두면 좋은 평가를 받을 수 있을까요?
-3. 공식 기준인 '20,000명 / ramp-up 60s' 외에, 저희가 10만 건 이상 대용량 부하 테스트를 추가로 시연하거나 단계별(RDB Redis Kafka) 성능 비교 결과를 보고서에 담는 것도 좋은 차별화 포인트가 될 수 있을지 궁금합니다.
-4. 이런 동시성·메시징 프로젝트 경험이 채용 과정에서 어떻게 평가되나요? 결과 수치보다 더 중요하게 보시는 부분이 있다면 무엇인가요?
-5. 대용량 트래픽과 메시지 큐(Kafka), 캐시(Redis)가 얽힌 분산 환경으로 넘어갈 때 백엔드 엔지니어로서 가장 주의 깊게 학습하고 고민해야 할 핵심 개념은 무엇이라고 생각하는지
-
- 
+<div align="center">
+<img src="https://capsule-render.vercel.app/api?type=waving&color=0:D82C20,100:6DB33F&height=100&section=footer" width="100%" />
+</div>
