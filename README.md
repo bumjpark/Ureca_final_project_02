@@ -39,6 +39,7 @@
 - [🔥 부하 테스트](#-부하-테스트)
 - [✅ 정합성 검증](#-정합성-검증)
 - [🧪 테스트](#-테스트)
+- [🔧 트러블슈팅](#-트러블슈팅)
 - [👨‍💻 개인 담당](#-개인-담당)
 
 <br/>
@@ -183,7 +184,7 @@
 ├──────────────────────┬──────────────────────┬───────────────────────────────────┤
 │  🎯 동시성 무결성    │  20,000 VU 동시 폭주 │  초과 발급 0건 · 중복 발급 0건     │
 │  ⚡ 초저지연 응답    │  2단계 발급 비동기화 │  응답 지연 Max 6.24s ➜ 43.88ms   │
-│  🔍 대규모 정합성    │  300만 건 전수 검증  │  OOM 0% · 35초 만에 SUCCESS 완결 │
+│  🔍 대규모 정합성    │  300만 건 전수 검증  │  OOM 0% · 1분 13초 전수 SUCCESS  │
 │  🛡️ 무손실 자가치유  │  카오스 장애 주입    │  최대 지연 155s ➜ 4.8s · 유실 0건 │
 └──────────────────────┴──────────────────────┴───────────────────────────────────┘
 ```
@@ -196,7 +197,7 @@
 | **DB 적재 처리량** | Consumer DB 반영 TPS | 229 TPS (43.6초) | **1,250 TPS (8.0초)** | **5.5배 개선** |
 | **대기열 UX** | 사용자 평균 대기 시간 | 15.2초 (유량 300) | **7.4초 (유량 1,000)** | **51% 단축** |
 | **장애 복구 지연** | Kafka 브로커 장애 시 Max 지연 | 155초 (스레드 풀 고갈) | **4.8초 (Fail-Fast 타임아웃)** | **32배 단축 (유실 0건)** |
-| **대규모 검증 속도** | 단일 정책 100만 건 (합 300만 건) | 1.53s 타임아웃 에러 | **35초 전수 검증 완료** | SSCAN 커서 분할 $O(N)$ 돌파 |
+| **대규모 검증 속도** | 7개 정책 300만 건 전수 이상 시나리오 적발 | 1.53s 타임아웃 에러 | **1분 13초 전수 완료** | SSCAN 커서 분할 $O(N)$ 돌파 |
 
 <br/>
 
@@ -208,72 +209,6 @@
 <img width="900" alt="ERD" src="https://github.com/user-attachments/assets/a18d4602-76bd-4731-ac70-70986a33c7c1" />
 </div>
 
-```mermaid
-erDiagram
-    USERS ||--o{ COUPON_ISSUE : "발급받음"
-    COUPON_POLICY ||--o{ COUPON_ISSUE : "발급 대상"
-    COUPON_ISSUE ||--o{ COUPON_HISTORY : "상태 변화 이력"
-    COUPON_ISSUE |o--o{ RECONCILIATION_LOG : "재처리 대상(nullable)"
-    COUPON_POLICY ||--o{ QUEUE_JOIN_LOG : "대기열 참여 기록"
-    COUPON_POLICY ||--o{ VERIFICATION_REPORT : "검증 결과"
-
-    USERS {
-        bigint id PK
-        varchar email UK
-        varchar name
-    }
-    COUPON_POLICY {
-        bigint id PK
-        varchar title
-        varchar coupon_type "RATE/FIXED"
-        int discount_value
-        int total_quantity
-        datetime open_at
-        datetime close_at
-        datetime deleted_at "소프트 삭제"
-    }
-    COUPON_ISSUE {
-        bigint id PK
-        bigint coupon_policy_id FK "uk_policy_user (복합 유니크)"
-        bigint user_id FK "uk_policy_user (복합 유니크)"
-        varchar receipt_id "202 접수 시 발급"
-        varchar status "ISSUED/USED/EXPIRED"
-        datetime issued_at
-        datetime used_at
-    }
-    COUPON_HISTORY {
-        bigint id PK
-        bigint coupon_issue_id FK
-        varchar request_id UK "uk_history_request (멱등성 키)"
-        varchar prev_status
-        varchar new_status
-    }
-    QUEUE_JOIN_LOG {
-        bigint id PK
-        bigint coupon_policy_id "uq_policy_user (복합 유니크)"
-        bigint user_id "uq_policy_user (복합 유니크)"
-        varchar status "WAITING/ADMITTED"
-        bigint queue_rank "FCFS 검증 근거"
-        datetime joined_at
-    }
-    RECONCILIATION_LOG {
-        bigint id PK
-        varchar type "EVENT_REPUBLISH / DLT_REPROCESS / REDIS_RECOVER"
-        varchar event_key UK
-        bigint coupon_issue_id FK
-        varchar status "PENDING/SUCCESS/FAILED"
-        int retry_count
-    }
-    VERIFICATION_REPORT {
-        bigint id PK
-        bigint coupon_policy_id FK
-        datetime run_at
-        int total_issued
-        int total_reserved
-        int mismatch_count
-        varchar status "SUCCESS/MISMATCH_FOUND"
-    }
-```
 
 ### 📋 테이블 명세 및 제약조건
 | 테이블명 | 역할 및 설계 의도 | 핵심 제약조건 |
@@ -465,19 +400,19 @@ return 1 -- SUCCESS
 
 ## 📊 성능 개선 결과
 
-### 🚀 1. k6 20,000 VU 부하 테스트 최종 벤치마크 (로컬 vs AWS)
-- **시나리오**: 한 VU가 `queue/join` ➜ `status 폴링` ➜ `issue` 전체 라이프사이클을 1회 수행.
-- **테스트 조건**: 재고 10,000장 / 동시 20,000 VU / ramp-up 10초
+### 🚀 1. 최종 실전 벤치마크: 20,000건 발급 부하 & 사후 정합성 전수 검증
+- **부하 시나리오**: 20,000명의 가상 유저(VU)가 10초 만에 동시 인입하여 `queue/join ➜ status ➜ issue` 1회 수행
+- **검증 시나리오**: 발급 부하 종료 직후 5대 불변식 정합성 엔진 및 300만 건 전수 검증 실행
 
-| 지표 | 로컬 환경 (Docker Bridge) | AWS 환경 (t3.xlarge) | 요구사항 달성 여부 |
+| 검증 단계 | 측정 지표 | 실측 결과 | 기술적 분석 및 무결성 검증 |
 |---|---|---|---|
-| **발급 성공 건수** | **10,000 / 10,000** | **10,000 / 10,000** | ✅ 100% 정량 소진 |
-| **초과 발급 (Oversold)** | **0건** | **0건** | ✅ **NFR-1 절대 만족** |
-| **중복 발급 (Duplicate)** | **0건** | **0건** | ✅ 1인 1매 엄격 준수 |
-| **선착순(FCFS) 역전** | 6건 (3쌍) | **0건 (완벽)** | ✅ 순서 공정성 확보 |
-| **HTTP 응답 지연 (p95)** | **7.48ms** (avg 1.64ms) | **3.57s** (네트워크 RTT 포함) | ✅ 초저지연 응답 |
-| **Kafka Consumer LAG** | **0** | **0** | ✅ 메시지 지연 0건 |
-| **데이터 영구 유실** | **0건** | **0건** | ✅ 무결성 100% |
+| **PHASE 1**<br>실시간 발급 부하<br>(20,000 VU k6) | **쿠폰 발급 & 품절 통보** | **발급 10,000건 · 품절 10,000건** | 재고 1만장 전량 정량 발급, 미발급자 100% 정상 품절 통보 |
+| | **HTTP 응답 지연** | **avg 3.63ms · med 1.14ms · p95 14.38ms** | Redis Lua 1ms 원자 판정 + 202 ACCEPTED 즉시 비동기 응답 |
+| | **대기열 통과 대기 시간** | **avg 6.36초 · med 7.00초 (max 10.0초)** | `available = stock - pending` 기반 안전 유량 제어 |
+| | **비동기 DB 영속화 시간** | **14.0초 커밋 완결 (1,250 TPS)** | SEQUENCE 메모리 채번 + `rewriteBatchedStatements` 최적화 |
+| **PHASE 2**<br>사후 정합성 검증<br>(전수 무결성 대조) | **Redis ↔ DB 원장 대조 (Check B)** | **Set Diff = 0건 (100% 일치)** | Redis 확정 발급자 집합과 MySQL 발급 원장 완전 일치 |
+| | **재고 삼각 불변식 (Check A)** | **잔여 0 + DB 10,000 + 예약 0 = 10,000** | 재고 누수 0건 및 1인 1매 중복 0건 물리적 검증 |
+| | **대규모 스케일 검증 (verify-all)**| **300만 건 1분 13초 전수 완료** | 7개 정책 100% 일치 판정 및 이상 시나리오 4종 100% 적발 |
 
 ---
 
@@ -707,9 +642,52 @@ k6 run -e BASE=http://localhost:8080 -e POLICY_ID=1 loadtest/burst-20k.js
 
 <br/>
 
+<br/>
+
+---
+
+## 🔧 트러블슈팅
+
+<details>
+<summary><b>자주 겪는 문제 / 해결 방법 펼쳐보기</b></summary>
+<div markdown="1">
+
+### ❌ `Could not get a resource from the pool` (Redis 연결 실패)
+- **원인**: Redis 컨테이너가 아직 기동 전이거나 `application.yml`의 host/port 설정 불일치
+- **해결**: `docker compose ps`로 Redis 상태 확인 → `docker compose up -d redis` 재기동
+
+### ❌ k6 실행 시 `i/o timeout` 대량 발생 (6,000건+)
+- **원인**: Windows/Mac 환경에서 k6가 호스트 NAT를 통해 컨테이너에 접근 시 OS 소켓 고갈
+- **해결**: k6도 Docker 컨테이너로 실행하여 동일 브리지 네트워크에서 직접 통신
+  ```bash
+  docker compose -f docker-compose.yml -f docker-compose.loadtest.yml --profile loadtest run --rm k6 run /scripts/burst-20k.js
+  ```
+
+### ❌ 20,000 VU 실행 시 OOM / Docker 크래시
+- **원인**: Docker Desktop 기본 메모리(2~4GB)가 20,000 VU 유지에 부족
+- **해결**: Docker Desktop → Settings → Resources → Memory를 **12GB 이상**으로 증설
+
+### ❌ Kafka Consumer가 메시지를 소비하지 않음
+- **원인**: Kafka 브로커가 완전히 기동되기 전에 Consumer가 연결을 시도하여 그룹 코디네이터를 찾지 못함
+- **해결**: `docker compose logs kafka | grep 'started'` 확인 후 앱 재기동, 또는 `auto.offset.reset=earliest` 설정 확인
+
+### ❌ `rewriteBatchedStatements` 적용 후에도 단건 INSERT가 나가는 경우
+- **원인**: JPA `IDENTITY` 전략은 `GenerationType.SEQUENCE`로 바꾸지 않으면 배치 INSERT가 비활성화됨
+- **해결**: `@GeneratedValue(strategy = GenerationType.SEQUENCE)` + `@SequenceGenerator(allocationSize=50)` 설정 확인
+
+### ❌ 통합 테스트 실행 후 데이터 오염
+- **원인**: `integrationTest`는 실제 DB에 연결하므로 기존 데이터와 충돌 가능
+- **해결**: 테스트 전용 DB 프로파일 사용 또는 `@Transactional` + `@Rollback` 어노테이션 확인
+
+</div>
+</details>
+
+<br/>
+
 ---
 
 ## 👨‍💻 개인 담당
+
 
 <table>
   <thead>
