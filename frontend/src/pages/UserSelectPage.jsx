@@ -65,20 +65,9 @@ export default function UserSelectPage() {
           <DataTable
             rowKey={(r) => r.userId}
             empty="일치하는 회원이 없어요"
+            onRowClick={(r) => setSelected(r.userId)}
+            isSelected={(r) => selected === r.userId}
             columns={[
-              {
-                key: 'pick',
-                label: '',
-                width: 36,
-                render: (r) => (
-                  <input
-                    type="radio"
-                    name="user"
-                    checked={selected === r.userId}
-                    onChange={() => setSelected(r.userId)}
-                  />
-                ),
-              },
               { key: 'name', label: '이름' },
               { key: 'email', label: '이메일' },
               { key: 'userId', label: '회원 ID' },
