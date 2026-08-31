@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.TransientDataAccessException;
 import org.springframework.kafka.annotation.EnableKafka;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
@@ -18,6 +19,8 @@ import org.springframework.kafka.listener.ContainerProperties.AckMode;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import com.ureca.myureca.consumer.CouponIssuedEventDeserializer;
 import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
+import org.springframework.util.backoff.BackOff;
+import org.springframework.util.backoff.ExponentialBackOff;
 import org.springframework.util.backoff.FixedBackOff;
 import tools.jackson.databind.ObjectMapper;
 
@@ -115,13 +118,14 @@ public class KafkaConsumerConfig {
      * DefaultErrorHandler 구성.
      *
      * <ul>
-     *   <li>FixedBackOff(1초, 3회): 순간적인 DB 커넥션 문제만 커버. 길면 파티션 랙 적체 위험.</li>
+     *   <li>기본 FixedBackOff(1초, 3회): 순간적인 DB 커넥션 문제만 커버. 길면 파티션 랙 적체 위험.</li>
+     *   <li>락 경합(데드락/락 대기 타임아웃)만 예외적으로 지수 백오프 — {@link #transientLockBackOff()} 참고.</li>
      *   <li>DataIntegrityViolationException: non-retryable 등록 — 재시도해도 UNIQUE 제약은 해소되지 않음.</li>
-     *   <li>3회 모두 실패 시: {@link ConsumerFailureRecoverer}로 위임 (현재: 구조화된 로그, 다음 이슈: DLT 전송)</li>
+     *   <li>재시도 모두 실패 시: {@link ConsumerFailureRecoverer}로 위임(현재 @Primary는 DLT 이적재).</li>
      * </ul>
      */
     private DefaultErrorHandler buildErrorHandler() {
-        // recoverer: ConsumerFailureRecoverer 인터페이스 구현체(현재: LoggingFailureRecoverer)를 위임 호출
+        // recoverer: ConsumerFailureRecoverer 인터페이스 구현체(현재: DltPublishingFailureRecoverer)를 위임 호출
         DefaultErrorHandler errorHandler = new DefaultErrorHandler(
                 (record, ex) -> failureRecoverer.recover(record, ex),
                 new FixedBackOff(1_000L, 3L) // interval=1초, maxAttempts=3
@@ -131,6 +135,44 @@ public class KafkaConsumerConfig {
         // (CouponIssuedEventProcessor에서 이미 catch하여 정상 종료하므로 여기까지 도달하는 경우는 드묾)
         errorHandler.addNotRetryableExceptions(DataIntegrityViolationException.class);
 
+        // 락 경합만 다른 백오프를 쓴다. null을 돌려주면 위 기본 FixedBackOff가 그대로 적용된다.
+        errorHandler.setBackOffFunction(
+                (record, ex) -> isTransientLockFailure(ex) ? transientLockBackOff() : null);
+
         return errorHandler;
+    }
+
+    /**
+     * 데드락(MySQL 1213)·락 대기 타임아웃(1205) 전용 백오프.
+     *
+     * <p><b>왜 기본 백오프로는 부족한가</b>: 이 둘은 DB가 "지금은 안 되니 다시 시도하라"고 알려주는
+     * 일시적 오류다. 그런데 기본값(1초 간격 3회)은 3초 안에 소진되므로, DB가 잠깐이라도 길게
+     * 붐비면 곧바로 DLT로 넘어간다 — 유실은 아니지만(DLT → {@code reconciliation_log}(DLT_REPROCESS)
+     * → {@code ReconciliationAutoRetryScheduler} 60초 주기 자동 재시도) 몇 초 뒤면 성공했을 건이
+     * 훨씬 무거운 경로를 한 바퀴 돌고 최대 1분 이상 지연된다. 2026-08-31 실측에서 스케줄러가
+     * DB를 2분간 붐비게 만들었을 때 이 경로로 대량 유입되는 것을 확인했다.
+     *
+     * <p>0.2초에서 시작해 2배씩(최대 2초), 총 6회까지 — 누적 약 7초. 파티션 랙이 밀리지 않도록
+     * 상한을 두되, 짧은 경합은 제자리에서 흡수하고 넘어가게 하는 것이 목적이다.
+     */
+    private BackOff transientLockBackOff() {
+        ExponentialBackOff backOff = new ExponentialBackOff(200L, 2.0);
+        backOff.setMaxInterval(2_000L);
+        backOff.setMaxAttempts(6);
+        return backOff;
+    }
+
+    /**
+     * 예외 체인에 {@link TransientDataAccessException}(데드락·락 타임아웃·일시적 커넥션 문제)이
+     * 있는지 확인한다. 리스너에서 올라온 예외는 {@code BatchListenerFailedException} 등으로
+     * 여러 겹 감싸여 있으므로 원인 체인을 끝까지 따라가야 한다.
+     */
+    private boolean isTransientLockFailure(Exception ex) {
+        for (Throwable t = ex; t != null && t != t.getCause(); t = t.getCause()) {
+            if (t instanceof TransientDataAccessException) {
+                return true;
+            }
+        }
+        return false;
     }
 }

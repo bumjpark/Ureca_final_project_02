@@ -11,6 +11,7 @@ import com.ureca.myureca.repository.CouponPolicyRepository;
 import com.ureca.myureca.support.RedisKeys;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -130,7 +131,7 @@ public class CouponStatusService {
         LocalDateTime minIssuedAt = couponIssueRepository.findMinIssuedAtByCouponPolicyId(policyId);
         // lastIssuedAt은 이미 위에서 조회했다(= maxIssuedAt)
         if (minIssuedAt != null && lastIssuedAt != null) {
-            redisElapsedMs = Duration.between(minIssuedAt, lastIssuedAt).toMillis();
+            redisElapsedMs = elapsedMillis(minIssuedAt, lastIssuedAt);
         }
 
         // DB 반영 완료 소요 시간: 첫 issued_at(Redis 발급 시작) ~ 마지막 created_at(DB 마지막 INSERT)
@@ -138,11 +139,21 @@ public class CouponStatusService {
         Long dbElapsedMs = null;
         LocalDateTime maxCreatedAt = couponIssueRepository.findMaxCreatedAtByCouponPolicyId(policyId);
         if (minIssuedAt != null && maxCreatedAt != null) {
-            dbElapsedMs = Duration.between(minIssuedAt, maxCreatedAt).toMillis();
+            dbElapsedMs = elapsedMillis(minIssuedAt, maxCreatedAt);
         }
 
         return new CouponIssuanceMetricsResponse(
                 policyId, totalIssuedEver, usedCount, expiredCount, issuedLastSecond, timeline,
                 redisElapsedMs, dbElapsedMs);
+    }
+
+    /**
+     * 두 시각 사이의 경과 밀리초. {@code LocalDateTime}끼리 바로 {@code Duration.between}을
+     * 부르면 타임존(서머타임 전환)을 무시한 계산이 되므로(java:S8700), 시스템 타임존을 명시해
+     * 시간대 인식 타입으로 바꾼 뒤 계산한다. 두 값 모두 같은 DB 컬럼에서 온 서버 로컬 시각이다.
+     */
+    private static long elapsedMillis(LocalDateTime from, LocalDateTime to) {
+        ZoneId zone = ZoneId.systemDefault();
+        return Duration.between(from.atZone(zone), to.atZone(zone)).toMillis();
     }
 }

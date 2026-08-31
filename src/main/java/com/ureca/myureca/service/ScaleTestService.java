@@ -41,6 +41,16 @@ public class ScaleTestService {
     public static final String TITLE_PREFIX = "scale-3m-";
     private static final String USER_EMAIL_PREFIX = "scaletest-user-";
 
+    // 네이티브 쿼리 바인딩 파라미터 이름 / 반복되는 SQL 조각 (문자열 리터럴 중복 제거)
+    private static final String PARAM_PREFIX = "prefix";
+    private static final String PARAM_POLICY_ID = "policyId";
+    private static final String PARAM_USER_FROM = "userFrom";
+    private static final String PARAM_USER_TO = "userTo";
+    private static final String QUEUE_JOIN_LOG_INSERT_SQL =
+            "insert into queue_join_log (coupon_policy_id, user_id, status, queue_rank, joined_at, created_at) ";
+    private static final String USERS_BETWEEN_USER_RANGE_SQL =
+            "from users where id between :userFrom and :userTo";
+
     /** 0~9 열 행 10개짜리 파생 테이블 — 자릿수 크로스조인 숫자 생성기의 building block.
      *  {@code String.formatted(alias)}로 alias만 바꿔 여러 개 붙인다. */
     private static final String DIGIT_TABLE_SQL =
@@ -118,9 +128,50 @@ public class ScaleTestService {
 
             long totalRows = results.stream().mapToLong(ScenarioResult::couponIssueRows).sum();
             log.info("[ScaleTest] 시딩 완료. 정책 {}개, coupon_issue 합계 {}건", results.size(), totalRows);
+            resyncSequenceGenerators();
             return new ScaleTestResponse(results, totalRows, POOL_SIZE);
         } finally {
             enableIntegrityChecks();
+        }
+    }
+
+    /**
+     * {@code coupon_issue}/{@code coupon_history}는 네이티브 SQL로 직접 INSERT하기 때문에(위
+     * {@link #insertCouponIssue}, {@link #insertCouponHistoryForAllIssued} 등) MySQL의
+     * AUTO_INCREMENT 카운터만 올라갈 뿐, JPA {@code GenerationType.SEQUENCE}가 실제로 채번에
+     * 쓰는 별도 카운터 테이블(각각 {@code coupon_issue_seq}/{@code coupon_history_seq})은 전혀
+     * 갱신되지 않는다 — 이 두 채번기는 완전히 독립적이다.
+     *
+     * <p>이 상태에서 이 도구로 300만 건을 시딩하면 AUTO_INCREMENT는 300만대까지 올라가지만,
+     * Hibernate 시퀀스 카운터는 시딩 전 수준(수만 이하)에 그대로 머문다. 그 직후 실제 발급
+     * 플로우(Kafka 컨슈머의 {@code CouponIssueRepository.save()})가 이 낮은 카운터에서 ID를
+     * 받아오면, 그 ID는 이미 방금 시딩한 더미 데이터가 점유하고 있어 매번
+     * {@code Duplicate entry 'N' for key 'coupon_issue.PRIMARY'}로 INSERT가 실패한다 — 겉으로는
+     * 컨슈머의 "인박스 체크(멱등성)"가 중복으로 걸러낸 것처럼 로그가 찍히지만, 실제로는 전혀
+     * 다른 원인(PK 충돌)으로 매 건이 진짜 실패하는 것이라 Redis {@code reserved}만 쌓이고
+     * DB엔 아무것도 안 남는다(실측, 2026-08-31).
+     *
+     * <p>시딩 직후 두 카운터를 실제 MAX(id)+1 이상으로 강제로 맞춰서 이 충돌을 원천 차단한다.
+     * {@code WHERE s.next_val < m.next_id}로 걸어서, 이미 더 앞서 있는 카운터를 실수로 뒤로
+     * 되돌리지는 않는다(단조 증가만 허용).
+     */
+    private void resyncSequenceGenerators() {
+        int issueBumped = entityManager.createNativeQuery(
+                        "update coupon_issue_seq s "
+                                + "join (select coalesce(max(id), 0) + 1 as next_id from coupon_issue) m "
+                                + "set s.next_val = m.next_id "
+                                + "where s.next_val < m.next_id")
+                .executeUpdate();
+        int historyBumped = entityManager.createNativeQuery(
+                        "update coupon_history_seq s "
+                                + "join (select coalesce(max(id), 0) + 1 as next_id from coupon_history) m "
+                                + "set s.next_val = m.next_id "
+                                + "where s.next_val < m.next_id")
+                .executeUpdate();
+        if (issueBumped > 0 || historyBumped > 0) {
+            log.info("[ScaleTest] Hibernate 시퀀스 카운터를 실제 MAX(id) 이상으로 재동기화 완료 "
+                    + "(coupon_issue_seq bumped={}, coupon_history_seq bumped={}) — "
+                    + "이후 실제 발급 플로우의 PK 충돌을 방지", issueBumped, historyBumped);
         }
     }
 
@@ -247,7 +298,7 @@ public class ScaleTestService {
                 .setParameter("ids", policyIds)
                 .executeUpdate();
         entityManager.createNativeQuery("delete from users where email like :prefix")
-                .setParameter("prefix", USER_EMAIL_PREFIX + "%")
+                .setParameter(PARAM_PREFIX, USER_EMAIL_PREFIX + "%")
                 .executeUpdate();
 
         for (Long policyId : policyIds) {
@@ -308,13 +359,13 @@ public class ScaleTestService {
                                 + ", " + DIGIT_TABLE_SQL.formatted("d7")
                                 + ") t "
                                 + "where n <= :total")
-                .setParameter("prefix", USER_EMAIL_PREFIX)
+                .setParameter(PARAM_PREFIX, USER_EMAIL_PREFIX)
                 .setParameter("total", total)
                 .executeUpdate();
 
         Object minId = entityManager.createNativeQuery(
                         "select min(id) from users where email like :prefix")
-                .setParameter("prefix", USER_EMAIL_PREFIX + "%")
+                .setParameter(PARAM_PREFIX, USER_EMAIL_PREFIX + "%")
                 .getSingleResult();
         return ((Number) minId).longValue();
     }
@@ -443,23 +494,23 @@ public class ScaleTestService {
         long victimFrom = issuedTo - FCFS_GHOST_FRONTRUNNER + 1; // 발급자 중 마지막 1,000명
         long normalTo = victimFrom - 1; // 발급자 중 앞 99,000명의 끝
         entityManager.createNativeQuery(
-                        "insert into queue_join_log (coupon_policy_id, user_id, status, queue_rank, joined_at, created_at) "
+                        QUEUE_JOIN_LOG_INSERT_SQL
                                 + "select :policyId, id, 'ADMITTED', (id - :ghostFrom + 1), now(), now() "
                                 + "from users where id between :ghostFrom and :ghostTo")
-                .setParameter("policyId", policyId).setParameter("ghostFrom", ghostFrom).setParameter("ghostTo", ghostTo)
+                .setParameter(PARAM_POLICY_ID, policyId).setParameter("ghostFrom", ghostFrom).setParameter("ghostTo", ghostTo)
                 .executeUpdate();
         entityManager.createNativeQuery(
-                        "insert into queue_join_log (coupon_policy_id, user_id, status, queue_rank, joined_at, created_at) "
+                        QUEUE_JOIN_LOG_INSERT_SQL
                                 + "select :policyId, id, 'ADMITTED', (id - :userFrom + 1 + :ghostCount), now(), now() "
                                 + "from users where id between :userFrom and :normalTo")
-                .setParameter("policyId", policyId).setParameter("userFrom", userFrom)
+                .setParameter(PARAM_POLICY_ID, policyId).setParameter(PARAM_USER_FROM, userFrom)
                 .setParameter("normalTo", normalTo).setParameter("ghostCount", FCFS_GHOST_FRONTRUNNER)
                 .executeUpdate();
         entityManager.createNativeQuery(
-                        "insert into queue_join_log (coupon_policy_id, user_id, status, queue_rank, joined_at, created_at) "
+                        QUEUE_JOIN_LOG_INSERT_SQL
                                 + "select :policyId, id, 'ADMITTED', (id - :victimFrom + 1 + :cutoff), now(), now() "
                                 + "from users where id between :victimFrom and :issuedTo")
-                .setParameter("policyId", policyId).setParameter("victimFrom", victimFrom)
+                .setParameter(PARAM_POLICY_ID, policyId).setParameter("victimFrom", victimFrom)
                 .setParameter("issuedTo", issuedTo).setParameter("cutoff", (long) FCFS_ISSUED)
                 .executeUpdate();
 
@@ -485,8 +536,8 @@ public class ScaleTestService {
         entityManager.createNativeQuery(
                         "insert into coupon_issue (coupon_policy_id, user_id, receipt_id, status, issued_at, created_at, updated_at) "
                                 + "select :policyId, id, concat('rcpt_scale_', :policyId, '_', id), 'ISSUED', now(), now(), now() "
-                                + "from users where id between :userFrom and :userTo")
-                .setParameter("policyId", policyId).setParameter("userFrom", userFrom).setParameter("userTo", userTo)
+                                + USERS_BETWEEN_USER_RANGE_SQL)
+                .setParameter(PARAM_POLICY_ID, policyId).setParameter(PARAM_USER_FROM, userFrom).setParameter(PARAM_USER_TO, userTo)
                 .executeUpdate();
     }
 
@@ -495,7 +546,7 @@ public class ScaleTestService {
                         "insert into coupon_history (coupon_issue_id, request_id, prev_status, new_status, created_at) "
                                 + "select id, receipt_id, 'NONE', 'ISSUED', issued_at "
                                 + "from coupon_issue where coupon_policy_id = :policyId")
-                .setParameter("policyId", policyId)
+                .setParameter(PARAM_POLICY_ID, policyId)
                 .executeUpdate();
     }
 
@@ -508,17 +559,17 @@ public class ScaleTestService {
         entityManager.createNativeQuery(
                         "insert into coupon_issue (coupon_policy_id, user_id, receipt_id, status, issued_at, used_at, created_at, updated_at) "
                                 + "select :policyId, id, concat('rcpt_scale_', :policyId, '_', id), 'USED', now(), now(), now(), now() "
-                                + "from users where id between :userFrom and :userTo")
-                .setParameter("policyId", policyId).setParameter("userFrom", userFrom).setParameter("userTo", userTo)
+                                + USERS_BETWEEN_USER_RANGE_SQL)
+                .setParameter(PARAM_POLICY_ID, policyId).setParameter(PARAM_USER_FROM, userFrom).setParameter(PARAM_USER_TO, userTo)
                 .executeUpdate();
     }
 
     private void insertQueueJoinLog(Long policyId, long userFrom, long userTo, long rankBase) {
         entityManager.createNativeQuery(
-                        "insert into queue_join_log (coupon_policy_id, user_id, status, queue_rank, joined_at, created_at) "
+                        QUEUE_JOIN_LOG_INSERT_SQL
                                 + "select :policyId, id, 'ADMITTED', (id - :userFrom + :rankBase), now(), now() "
-                                + "from users where id between :userFrom and :userTo")
-                .setParameter("policyId", policyId).setParameter("userFrom", userFrom).setParameter("userTo", userTo)
+                                + USERS_BETWEEN_USER_RANGE_SQL)
+                .setParameter(PARAM_POLICY_ID, policyId).setParameter(PARAM_USER_FROM, userFrom).setParameter(PARAM_USER_TO, userTo)
                 .setParameter("rankBase", rankBase)
                 .executeUpdate();
     }
@@ -526,7 +577,7 @@ public class ScaleTestService {
     private long countCouponIssue(Long policyId) {
         Object count = entityManager.createNativeQuery(
                         "select count(*) from coupon_issue where coupon_policy_id = :policyId")
-                .setParameter("policyId", policyId)
+                .setParameter(PARAM_POLICY_ID, policyId)
                 .getSingleResult();
         return ((Number) count).longValue();
     }

@@ -95,9 +95,9 @@ class VerificationAsyncTriggerTest {
                 .when(queueJoinLogRepository.countByCouponPolicyIdAndQueueRankLessThanEqual(any(), any()))
                 .thenReturn(0L);
         // REDIS_ONLY 드리프트 등록(신규) — 대부분의 기존 테스트는 이 경로와 무관하므로
-        // "아직 등록된 적 없음"(existsByEventKey=false) 기본값으로 흐른다.
+        // "아직 등록된 적 없음"(이미 등록된 eventKey 없음) 기본값으로 흐른다.
         org.mockito.Mockito.lenient()
-                .when(reconciliationLogRepository.existsByEventKey(any())).thenReturn(false);
+                .when(reconciliationLogRepository.findExistingEventKeys(any())).thenReturn(Set.of());
 
         // execute()가 트랜잭션 프록시를 얻어오는 자기 참조. 유닛 테스트에는 프록시가 없으므로
         // 자기 자신을 그대로 돌려준다(이 테스트들은 performVerification을 직접 호출하지만,
@@ -316,10 +316,11 @@ class VerificationAsyncTriggerTest {
 
         asyncTrigger.performVerification(1L);
 
-        org.mockito.ArgumentCaptor<com.ureca.myureca.domain.reconciliation.ReconciliationLog> captor =
-                org.mockito.ArgumentCaptor.forClass(com.ureca.myureca.domain.reconciliation.ReconciliationLog.class);
-        verify(reconciliationLogRepository).save(captor.capture());
-        com.ureca.myureca.domain.reconciliation.ReconciliationLog saved = captor.getValue();
+        org.mockito.ArgumentCaptor<List<com.ureca.myureca.domain.reconciliation.ReconciliationLog>> captor =
+                org.mockito.ArgumentCaptor.captor();
+        verify(reconciliationLogRepository).saveAll(captor.capture());
+        assertThat(captor.getValue()).hasSize(1);
+        com.ureca.myureca.domain.reconciliation.ReconciliationLog saved = captor.getValue().get(0);
         assertThat(saved.getType()).isEqualTo(com.ureca.myureca.domain.reconciliation.ReconciliationType.ISSUE_REPROCESS);
         assertThat(saved.getEventKey()).isEqualTo("verify-redis-only:1:999");
         assertThat(saved.getCouponIssue()).isNull();
@@ -336,11 +337,12 @@ class VerificationAsyncTriggerTest {
         when(zSetOperations.size(any())).thenReturn(0L);
         when(valueOperations.get(any())).thenReturn("9999");
         when(mismatchReportWriter.write(any(), any(), any())).thenReturn(Path.of("reports/x.csv"));
-        when(reconciliationLogRepository.existsByEventKey("verify-redis-only:1:999")).thenReturn(true);
+        when(reconciliationLogRepository.findExistingEventKeys(any()))
+                .thenReturn(Set.of("verify-redis-only:1:999"));
 
         asyncTrigger.performVerification(1L);
 
-        verify(reconciliationLogRepository, never()).save(any());
+        verify(reconciliationLogRepository, never()).saveAll(any());
     }
 
     /**
@@ -366,11 +368,12 @@ class VerificationAsyncTriggerTest {
         assertThat(report.getStatus()).isEqualTo(VerificationStatus.MISMATCH_FOUND);
         assertThat(report.getMismatchCount()).isEqualTo(1);
 
-        org.mockito.ArgumentCaptor<com.ureca.myureca.domain.reconciliation.ReconciliationLog> captor =
-                org.mockito.ArgumentCaptor.forClass(com.ureca.myureca.domain.reconciliation.ReconciliationLog.class);
-        verify(reconciliationLogRepository).save(captor.capture());
-        assertThat(captor.getValue().getEventKey()).isEqualTo("verify-reserved-stale:1:777");
-        assertThat(captor.getValue().getFailReason()).contains("미아 예약");
+        org.mockito.ArgumentCaptor<List<com.ureca.myureca.domain.reconciliation.ReconciliationLog>> captor =
+                org.mockito.ArgumentCaptor.captor();
+        verify(reconciliationLogRepository).saveAll(captor.capture());
+        assertThat(captor.getValue()).hasSize(1);
+        assertThat(captor.getValue().get(0).getEventKey()).isEqualTo("verify-reserved-stale:1:777");
+        assertThat(captor.getValue().get(0).getFailReason()).contains("미아 예약");
     }
 
     @Test
@@ -388,7 +391,7 @@ class VerificationAsyncTriggerTest {
 
         assertThat(report.getStatus()).isEqualTo(VerificationStatus.SUCCESS);
         assertThat(report.getMismatchCount()).isZero();
-        verify(reconciliationLogRepository, never()).save(any());
+        verify(reconciliationLogRepository, never()).saveAll(any());
     }
 
     @Test
@@ -408,7 +411,7 @@ class VerificationAsyncTriggerTest {
         asyncTrigger.performVerification(1L);
 
         assertThat(report.getMismatchCount()).isZero();
-        verify(reconciliationLogRepository, never()).save(any());
+        verify(reconciliationLogRepository, never()).saveAll(any());
     }
 
     @Test
@@ -658,7 +661,7 @@ class VerificationAsyncTriggerTest {
 
         assertThat(found).isZero();
         verify(couponIssueRepository, never()).findUserIdsByCouponPolicyId(any());
-        verify(reconciliationLogRepository, never()).save(any());
+        verify(reconciliationLogRepository, never()).saveAll(any());
     }
 
     @Test
@@ -673,7 +676,7 @@ class VerificationAsyncTriggerTest {
         int found = asyncTrigger.detectAndRegisterStaleReserved(1L);
 
         assertThat(found).isZero();
-        verify(reconciliationLogRepository, never()).save(any());
+        verify(reconciliationLogRepository, never()).saveAll(any());
     }
 
     @Test
@@ -685,23 +688,32 @@ class VerificationAsyncTriggerTest {
 
         int found = asyncTrigger.detectAndRegisterStaleReserved(1L);
 
+        // 건별 save가 아니라 청크 단위 saveAll 한 번으로 묶여 나간다(2026-08-31 배치화).
         assertThat(found).isEqualTo(2);
-        verify(reconciliationLogRepository, org.mockito.Mockito.times(2)).save(any());
+        org.mockito.ArgumentCaptor<List<com.ureca.myureca.domain.reconciliation.ReconciliationLog>> captor =
+                org.mockito.ArgumentCaptor.captor();
+        verify(reconciliationLogRepository).saveAll(captor.capture());
+        assertThat(captor.getValue()).extracting(
+                        com.ureca.myureca.domain.reconciliation.ReconciliationLog::getEventKey)
+                .containsExactly("verify-reserved-stale:1:10", "verify-reserved-stale:1:20");
     }
 
     @Test
-    void 이미_등록된_유저는_다시_등록하지_않는다() {
-        // existsByEventKey=true로 스텁 — 이전 틱에서 이미 등록됐다고 가정.
+    void 이미_등록된_유저는_다시_등록하지_않고_비싼_DB조회도_건너뛴다() {
+        // 이미 등록된 eventKey로 스텁 — 이전 틱에서 이미 등록됐다고 가정.
         when(zSetOperations.rangeByScore(eq("coupon:policy:1:reserved"),
                 org.mockito.ArgumentMatchers.anyDouble(), org.mockito.ArgumentMatchers.anyDouble()))
                 .thenReturn(Set.of("10"));
-        when(couponIssueRepository.findUserIdsByCouponPolicyId(1L)).thenReturn(List.of());
-        when(reconciliationLogRepository.existsByEventKey("verify-reserved-stale:1:10")).thenReturn(true);
+        when(reconciliationLogRepository.findExistingEventKeys(any()))
+                .thenReturn(Set.of("verify-reserved-stale:1:10"));
 
         int found = asyncTrigger.detectAndRegisterStaleReserved(1L);
 
-        // 발견 자체는 여전히 1건으로 보고하되(스케줄러 로그용), 실제 저장은 안 한다.
-        assertThat(found).isEqualTo(1);
-        verify(reconciliationLogRepository, never()).save(any());
+        // 미아 예약은 사람이 재처리하기 전까지 reserved에 계속 남아 매 틱 다시 발견된다.
+        // 새로 할 일이 없으면 0을 돌려줘 스케줄러가 같은 경고를 60초마다 반복하지 않게 하고,
+        // 정책 전체 user_id를 로드하는 비싼 조회까지 가기 전에 빠져나온다.
+        assertThat(found).isZero();
+        verify(couponIssueRepository, never()).findUserIdsByCouponPolicyId(any());
+        verify(reconciliationLogRepository, never()).saveAll(any());
     }
 }

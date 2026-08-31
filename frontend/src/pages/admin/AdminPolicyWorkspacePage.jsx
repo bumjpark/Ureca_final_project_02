@@ -1,11 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import {
-  getCouponIssuanceMetrics,
-  getCouponStatus,
-  getPolicy,
-  listReconciliationLogs,
-} from '../../lib/endpoints.js';
+import { getCouponIssuanceMetrics, getCouponStatus, getPolicy } from '../../lib/endpoints.js';
 import { useAdminPolicies } from '../../lib/hooks.js';
 import { Badge, Card, LoadingBlock, PageHeader, ProgressBar, StatTile, Tabs } from '../../components/ui.jsx';
 import IssuanceChart from '../../components/IssuanceChart.jsx';
@@ -13,9 +8,7 @@ import PolicyPicker from '../../components/admin/PolicyPicker.jsx';
 import InfraStatusBar from '../../components/admin/InfraStatusBar.jsx';
 import { QueueControlPanel } from './AdminQueueControlPage.jsx';
 import { VerificationPanel } from './AdminVerificationPage.jsx';
-import { ReconciliationPanel } from './AdminReconciliationPage.jsx';
-import { LoadTestPanel } from './AdminLoadTestPage.jsx';
-import { comma } from '../../lib/format.js';
+import { comma, policyStatusBadge } from '../../lib/format.js';
 
 const TIMELINE_SECONDS = 120;
 
@@ -57,26 +50,14 @@ function StatusTab({ policyId, policy }) {
   // 이 화면은 출처가 두 개다.
   //   KPI/진행바 = Redis 실시간 재고(총 수량 − stock 키). /issue 성공 즉시 반응한다.
   //   그래프/사용·만료 = DB coupon_issue. Kafka 컨슈머가 행을 넣어야 반응한다.
-  // 둘 사이의 간격이 곧 "확정 대기 중"인 건수라, 벌어졌을 때 화면에 드러나게 한다.
-  const dbIssued = m?.totalIssuedEver ?? null;
-  // Redis stock 키가 통째로 없으면 remaining=총수량으로 방어돼 발급 0으로 보인다 — DB에는
-  // 발급이 있는데 KPI만 0인 이 상태를 "정상"으로 오해하지 않도록 따로 잡아낸다.
-  const redisStockMissing =
-    dbIssued != null && dbIssued > 0 && s.remainingQuantity === s.totalQuantity;
+  //
+  // 예전에는 "DB엔 발급이 있는데 Redis 재고는 총 수량 그대로"인 상태를 감지해 빨간 경고 카드를
+  // 띄웠는데, 두 출처를 각각 다른 주기로 폴링하다 보니 부하테스트 중에 한쪽만 먼저 갱신되는
+  // 찰나에 경고가 떴다 사라지기를 반복했다(오탐). 실제 Redis 재고 키 유실은 상단 인프라 상태 바와
+  // 정합성 검증에서 훨씬 정확하게 드러나므로, 이 화면에서는 표시하지 않는다.
 
   return (
     <div className="space-y-4">
-      {redisStockMissing && (
-        <Card className="p-4 ring-1 ring-inset ring-danger">
-          <p className="text-[14px] font-bold text-danger">아래 KPI를 믿지 마세요 — Redis 재고 키가 없습니다</p>
-          <p className="text-[13px] text-sub mt-1.5 leading-relaxed">
-            DB에는 발급이 <b className="text-ink nums">{comma(dbIssued)}</b>건 있는데 Redis 재고가 총 수량 그대로라
-            발급 0건으로 계산되고 있어요. 자동 복구 스케줄러가 5초 주기로 재고를 다시 만들어 줍니다 —
-            잠시 뒤에도 그대로면 Redis 상태를 확인하세요. 아래 그래프(DB 기준)는 이 영향을 받지 않습니다.
-          </p>
-        </Card>
-      )}
-
       {/* KPI — dev 대시보드처럼 큰 숫자가 주인공. 재고 소진이면 레드로 전환된다.
           카드마다 출처가 달라서(재고는 Redis, 속도는 DB) 카드 단위로 표시한다. */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -126,9 +107,16 @@ function StatusTab({ policyId, policy }) {
           <h2 className="text-[15px] font-bold text-ink flex items-center gap-2">
             실시간 발급 추이 <SourceTag source="db" />
           </h2>
-          <Badge tone={policy?.status === 'BEFORE_OPEN' ? 'soon' : soldOut ? 'done' : 'live'}>
-            {policy?.status === 'BEFORE_OPEN' ? '오픈 전' : soldOut ? '소진 · 정지' : '발급 중'}
-          </Badge>
+          {/* 재고 소진은 Redis 실시간 상태(soldOut)가 서버 status보다 빠르므로 그쪽을 우선한다.
+              나머지(오픈 전 / 마감)는 서버가 계산해준 status를 그대로 따른다. */}
+          {soldOut ? (
+            <Badge tone="done">소진 · 정지</Badge>
+          ) : (
+            (() => {
+              const b = policyStatusBadge(policy?.status);
+              return <Badge tone={b.tone}>{policy?.status === 'OPEN' ? '발급 중' : b.label}</Badge>;
+            })()
+          )}
         </div>
         <p className="text-[12px] text-sub mb-3">
           최근 {TIMELINE_SECONDS}초, 1초 단위 확정 건수 · DB에 확정된 시점이 아니라 발급 요청이 성공한
@@ -250,28 +238,13 @@ function ElapsedCard({ label, ms, sub, desc, source }) {
   );
 }
 
-// 재처리 탭에 "미해결 몇 건" 뱃지를 붙이기 위한 가벼운 카운트 조회. FAILED/PENDING 각각
-// size=1로만 물어 totalElements(전체 건수)를 얻는다 — 목록 자체는 필요 없다.
-function useUnresolvedReconciliationCount(policyId) {
-  const failedQ = useQuery({
-    queryKey: ['reconciliation-count', policyId, 'FAILED'],
-    queryFn: () => listReconciliationLogs({ policyId, status: 'FAILED', page: 0, size: 1 }),
-    refetchInterval: 5000,
-  });
-  const pendingQ = useQuery({
-    queryKey: ['reconciliation-count', policyId, 'PENDING'],
-    queryFn: () => listReconciliationLogs({ policyId, status: 'PENDING', page: 0, size: 1 }),
-    refetchInterval: 5000,
-  });
-  return (failedQ.data?.totalElements ?? 0) + (pendingQ.data?.totalElements ?? 0);
-}
-
+// 부하테스트·재처리는 이 작업 공간에서 뺐다 — 부하테스트는 화면이 아니라 CLI(k6)로 돌리고,
+// 재처리는 특정 정책이 아니라 전체를 훑어보는 작업이라 전역 화면(/admin/reconciliation,
+// /admin/load-test)에 그대로 남아있다. 그쪽 패널 컴포넌트도 각 페이지에 그대로 있다.
 const TABS = [
   { value: 'status', label: '현황' },
-  { value: 'load-test', label: '부하테스트' },
   { value: 'queue', label: '대기열' },
   { value: 'verification', label: '정합성 검증' },
-  { value: 'reconciliation', label: '재처리' },
 ];
 
 export default function AdminPolicyWorkspacePage() {
@@ -279,15 +252,13 @@ export default function AdminPolicyWorkspacePage() {
   const policyId = Number(policyIdParam);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const tab = searchParams.get('tab') ?? 'status';
+  // 없어진 탭(load-test/reconciliation)을 가리키는 예전 북마크는 현황으로 되돌린다 —
+  // 안 그러면 탭 바만 뜨고 본문이 통째로 비어 보인다.
+  const requestedTab = searchParams.get('tab');
+  const tab = TABS.some((t) => t.value === requestedTab) ? requestedTab : 'status';
 
   const policiesQ = useAdminPolicies();
   const policyQ = useQuery({ queryKey: ['admin-policy', policyId], queryFn: () => getPolicy(policyId) });
-  const unresolvedCount = useUnresolvedReconciliationCount(policyId);
-
-  const tabOptions = TABS.map((t) =>
-    t.value === 'reconciliation' && unresolvedCount > 0 ? { ...t, label: `재처리 (${unresolvedCount})` } : t,
-  );
 
   return (
     <div className="flex flex-col gap-4">
@@ -306,13 +277,11 @@ export default function AdminPolicyWorkspacePage() {
         }
       />
 
-      <Tabs options={tabOptions} value={tab} onChange={(v) => setSearchParams({ tab: v })} />
+      <Tabs options={TABS} value={tab} onChange={(v) => setSearchParams({ tab: v })} />
 
       {tab === 'status' && <StatusTab policyId={policyId} policy={policyQ.data} />}
-      {tab === 'load-test' && <LoadTestPanel policyId={policyId} />}
       {tab === 'queue' && <QueueControlPanel policyId={policyId} allowGlobalToggle={false} />}
       {tab === 'verification' && <VerificationPanel policyId={policyId} />}
-      {tab === 'reconciliation' && <ReconciliationPanel policyId={policyId} />}
     </div>
   );
 }
