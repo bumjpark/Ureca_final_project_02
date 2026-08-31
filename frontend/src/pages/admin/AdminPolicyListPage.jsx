@@ -4,16 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { listPolicies, deletePolicy } from '../../lib/endpoints.js';
 import { Badge, Button, DataTable, PageHeader } from '../../components/ui.jsx';
 import Pagination from '../../components/Pagination.jsx';
-import { comma, fmtDateTime } from '../../lib/format.js';
-
-function policyBadge(policy) {
-  const now = new Date();
-  const openAt = new Date(policy.openAt);
-  const closeAt = policy.closeAt ? new Date(policy.closeAt) : null;
-  if (now < openAt) return { tone: 'soon', label: '오픈 예정' };
-  if (closeAt && now > closeAt) return { tone: 'done', label: '마감' };
-  return { tone: 'live', label: '진행중' };
-}
+import { comma, fmtDateTime, policyStatusBadge } from '../../lib/format.js';
 
 export default function AdminPolicyListPage() {
   const navigate = useNavigate();
@@ -61,7 +52,7 @@ export default function AdminPolicyListPage() {
             key: 'status',
             label: '상태',
             render: (r) => {
-              const b = policyBadge(r);
+              const b = policyStatusBadge(r.status);
               return <Badge tone={b.tone}>{b.label}</Badge>;
             },
           },

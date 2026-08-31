@@ -4,18 +4,9 @@ import { Link } from 'react-router-dom';
 import { listPolicies, getCouponStatus } from '../lib/endpoints.js';
 import { Badge, Card, LoadingBlock } from '../components/ui.jsx';
 import Pagination from '../components/Pagination.jsx';
-import { comma, fmtDateTime, discountLabel } from '../lib/format.js';
+import { comma, fmtDateTime, discountLabel, policyStatusBadge } from '../lib/format.js';
 
 const PAGE_SIZE = 9;
-
-function policyBadge(policy) {
-  const now = new Date();
-  const openAt = new Date(policy.openAt);
-  const closeAt = policy.closeAt ? new Date(policy.closeAt) : null;
-  if (now < openAt) return { tone: 'soon', label: '오픈 예정' };
-  if (closeAt && now > closeAt) return { tone: 'done', label: '마감' };
-  return { tone: 'live', label: '진행중' };
-}
 
 export default function EventListPage() {
   const [page, setPage] = useState(0);
@@ -23,13 +14,15 @@ export default function EventListPage() {
     queryKey: ['event-list', page],
     queryFn: async () => {
       const res = await listPolicies(page, PAGE_SIZE);
+      // 재고 조회 결과는 stock으로 담는다 — 예전엔 status로 담았는데, 그러면 정책 자신의
+      // status(BEFORE_OPEN/OPEN/CLOSED…)를 덮어써서 배지가 깨진다.
       const items = await Promise.all(
         (res.content ?? []).map(async (p) => {
           try {
-            const status = await getCouponStatus(p.id);
-            return { ...p, status };
+            const stock = await getCouponStatus(p.id);
+            return { ...p, stock };
           } catch {
-            return { ...p, status: null };
+            return { ...p, stock: null };
           }
         }),
       );
@@ -56,8 +49,10 @@ export default function EventListPage() {
 
       <div className="grid grid-cols-3 gap-4">
         {(q.data?.items ?? []).map((p) => {
-          const badge = policyBadge(p);
-          const remain = p.status ? `잔여 ${comma(p.status.remainingQuantity)} / ${comma(p.status.totalQuantity)}` : `총 ${comma(p.totalQuantity)}장`;
+          const badge = policyStatusBadge(p.status);
+          const remain = p.stock
+            ? `잔여 ${comma(p.stock.remainingQuantity)} / ${comma(p.stock.totalQuantity)}`
+            : `총 ${comma(p.totalQuantity)}장`;
           return (
             <Link key={p.id} to={`/events/${p.id}`}>
               <Card className={`flex flex-col hover:border-mint transition-colors ${badge.tone === 'done' ? 'opacity-70' : ''}`}>
