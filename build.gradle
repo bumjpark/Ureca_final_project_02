@@ -20,7 +20,6 @@ repositories {
 dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
-	implementation 'org.springframework.boot:spring-boot-starter-security'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
 	implementation 'org.springframework.kafka:spring-kafka'
@@ -31,7 +30,6 @@ dependencies {
 	runtimeOnly 'com.mysql:mysql-connector-j'
 	annotationProcessor 'org.projectlombok:lombok'
 	testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
-	testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-validation-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
 	testImplementation 'org.springframework.kafka:spring-kafka-test'
@@ -42,4 +40,38 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+
+	// ⚠️ @SpringBootTest(통합 테스트)를 기본 실행에서 제외한다.
+	//
+	// 이 테스트들은 실제 MySQL에 붙어 Flyway 마이그레이션까지 돌리는데, 마이그레이션이
+	// 첫머리에 `USE coupon_db;`로 DB를 하드코딩하고 V1이 `DROP TABLE IF EXISTS`로 시작한다.
+	// 즉 접속 URL을 다른 DB로 돌려놔도 DDL은 coupon_db로 가고, 그 DB에 Flyway 이력이 없으면
+	// V1부터 다시 돌면서 개발 데이터를 통째로 드롭한다 —— 2026-08-29에 실제로 발생했다
+	// (Docs/Incident-2026-08-29-Dev-DB-Wipe.md).
+	//
+	// 그래서 "접속 DB를 바꾸는" 방식으로는 안전하게 만들 수 없다. 기본 실행에서 빼고,
+	// 돌릴 때는 사람이 데이터를 잃어도 되는 환경임을 확인하고 명시적으로 실행한다:
+	//
+	//     ./gradlew integrationTest
+	//
+	// 근본 해결(마이그레이션의 DB 하드코딩 제거 또는 Testcontainers 도입)은 별도 과제다.
+	filter {
+		excludeTestsMatching 'com.ureca.myureca.MyurecaApplicationTests'
+		excludeTestsMatching 'com.ureca.myureca.CouponIssueConcurrencyTest'
+		excludeTestsMatching 'com.ureca.myureca.service.FcfsVerificationIntegrationTest'
+	}
+}
+
+// 통합 테스트 전용 태스크. 위 경고를 읽고 "지금 이 DB는 날아가도 된다"를 확인한 뒤 실행할 것.
+tasks.register('integrationTest', Test) {
+	group = 'verification'
+	description = '실제 MySQL/Redis/Kafka에 붙는 @SpringBootTest만 실행한다. 대상 DB의 데이터가 사라질 수 있다.'
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	useJUnitPlatform()
+	filter {
+		includeTestsMatching 'com.ureca.myureca.MyurecaApplicationTests'
+		includeTestsMatching 'com.ureca.myureca.CouponIssueConcurrencyTest'
+		includeTestsMatching 'com.ureca.myureca.service.FcfsVerificationIntegrationTest'
+	}
 }

@@ -14,6 +14,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.SequenceGenerator;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDateTime;
@@ -47,7 +48,11 @@ import org.hibernate.annotations.UpdateTimestamp;
 public class CouponIssue {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    // IDENTITY는 INSERT 직후 생성 키를 즉시 조회해야 해서 매 save()마다 flush를 강제한다.
+    // SEQUENCE는 ID를 allocationSize(50)개씩 미리 캐싱해 쓰므로 즉시 flush가 불필요해지고,
+    // JDBC batch insert(hibernate.jdbc.batch_size)도 가능해진다. (V7 마이그레이션 참고)
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "coupon_issue_seq")
+    @SequenceGenerator(name = "coupon_issue_seq", sequenceName = "coupon_issue_seq", allocationSize = 50)
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -124,5 +129,17 @@ public class CouponIssue {
             throw new IllegalStateException("ISSUED 상태에서만 만료 처리할 수 있습니다. 현재 상태: " + this.status);
         }
         this.status = IssueStatus.EXPIRED;
+    }
+
+    public boolean isExpiredAt(LocalDateTime now) {
+        if (this.status != IssueStatus.ISSUED) {
+            return false;
+        }
+        LocalDateTime closeAt = this.couponPolicy.getCloseAt();
+        return closeAt != null && closeAt.isBefore(now);
+    }
+
+    public boolean isUsableAt(LocalDateTime now) {
+        return this.status == IssueStatus.ISSUED && !isExpiredAt(now);
     }
 }

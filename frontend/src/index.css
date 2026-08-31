@@ -1,0 +1,54 @@
+@import 'tailwindcss';
+
+/* ── 디자인 토큰 ─────────────────────────────────────────
+   dev 브랜치의 토스풍 디자인 시스템을 그대로 가져왔다.
+   흰 배경 + 포인트 컬러 하나(민트) + 경고 레드. 그 외 색 금지.
+   그레이스케일 톤, 8pt 그리드. */
+@theme {
+  --color-ink: #191f28; /* 본문 텍스트 */
+  --color-sub: #8b95a1; /* 보조 텍스트 */
+  --color-mint: #00c4b8; /* 포인트 — 성공/발급 완료 */
+  --color-mint-weak: #e6faf8; /* 민트 배경(아주 옅게) */
+  --color-danger: #ff4d4f; /* 경고 — 재고 소진/실패 */
+  --color-danger-weak: #ffeceb; /* 레드 배경(아주 옅게) */
+  --color-surface: #f5f6f8; /* 섹션 구분 연회색 면 */
+  --color-line: #e5e8eb; /* 구분선 */
+  --color-hairline: #f0f1f3; /* 카드 테두리 */
+
+  --radius-card: 16px;
+  --radius-btn: 12px;
+
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.06);
+
+  --font-sans:
+    'Pretendard', 'Pretendard Variable', -apple-system, BlinkMacSystemFont,
+    'Apple SD Gothic Neo', system-ui, sans-serif;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: #ffffff;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 숫자가 주인공 — 자릿수 흔들림 방지 */
+.nums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+button {
+  font-family: inherit;
+}
+
+/* 스크롤바(대시보드 데스크톱) 톤 정리 */
+* {
+  scrollbar-color: var(--color-line) transparent;
+}

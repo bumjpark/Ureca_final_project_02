@@ -21,6 +21,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UpdateTimestamp;
 import org.hibernate.type.SqlTypes;
@@ -31,6 +32,7 @@ import org.hibernate.type.SqlTypes;
  * 재처리 큐 및 자가 치유 로그.
  */
 @Entity
+@DynamicUpdate
 @Table(
         name = "reconciliation_log",
         uniqueConstraints = @UniqueConstraint(name = "uk_reconciliation_event_key", columnNames = "event_key"),
@@ -140,5 +142,14 @@ public class ReconciliationLog {
         this.status = ReconciliationStatus.FAILED;
         this.failReason = failReason;
         this.processedAt = LocalDateTime.now();
+    }
+
+    /**
+     * 원본 이벤트가 최초에 실패한 이유를 기록한다. {@link #markFailed}와 달리 이 재처리 큐 행 자체의
+     * 성공/실패({@code status})는 건드리지 않는다 — "이 원본 이벤트가 왜 여기까지 왔는지"를 남기는
+     * 용도로, DLT 적재 시점처럼 아직 재처리를 시도하지도 않은 PENDING 행에 쓰인다.
+     */
+    public void recordOriginalFailure(String reason) {
+        this.failReason = reason;
     }
 }

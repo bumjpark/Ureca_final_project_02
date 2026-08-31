@@ -4,10 +4,14 @@ spring:
 
   # ---------- MySQL ----------
   datasource:
-    url: jdbc:mysql://${DB_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:coupon_db}?useSSL=false&serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+    url: jdbc:mysql://${DB_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:coupon_db}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul&characterEncoding=UTF-8&rewriteBatchedStatements=true
     username: ${MYSQL_USER:coupon_user}
     password: ${MYSQL_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      # 기본값(10)은 Kafka Consumer concurrency(3) + HTTP 요청 처리가 동시에 커넥션을
+      # 다투기엔 빠듯하다. 정합성과는 무관한 순수 리소스 여유분 확장.
+      maximum-pool-size: ${DB_HIKARI_MAX_POOL_SIZE:20}
 
   jpa:
     hibernate:
@@ -16,6 +20,17 @@ spring:
     properties:
       hibernate:
         format_sql: true
+        # SEQUENCE 전환(V7)과 짝을 맞춘 JDBC batch insert 설정.
+        # IDENTITY였을 때는 매 save()마다 즉시 flush가 강제돼 이 설정이 무의미했지만,
+        # SEQUENCE는 ID를 미리 캐싱해 쓰므로 flush를 트랜잭션 커밋 시점까지 미룰 수 있어
+        # 여러 INSERT를 한 번의 JDBC batch로 묶어 보낼 수 있다.
+        # coupon.kafka.consumer.chunk-size(기본 100)와 값을 맞췄다 — flush 시점에 대기 중인
+        # 엔티티 수 자체가 chunk-size로 결정되므로, batch_size를 그보다 크게 잡아도 의미가
+        # 없고 작으면(예: 50) 한 청크가 여러 번의 JDBC round-trip으로 쪼개져 나간다.
+        jdbc:
+          batch_size: 100
+        order_inserts: true
+        order_updates: true
     open-in-view: false
 
   # ---------- Redis ----------
@@ -24,6 +39,24 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
+      # 커맨드 타임아웃을 명시하지 않으면 Lettuce 기본값(60s)이 적용돼, Redis가 죽었을 때
+      # 요청 하나가 수십 초씩 블로킹된다. RedisConfig의 ClientOptions(REJECT_COMMANDS)와
+      # 함께 "빠른 실패"를 강제하기 위한 짧은 타임아웃.
+      timeout: 1000ms
+      lettuce:
+        pool:
+          max-active: 200
+          max-idle: 100
+          min-idle: 20
+
+  # ---------- @Scheduled 배치 스레드풀 ----------
+  # 값을 명시하지 않으면 스케줄러 스레드가 1개라 모든 @Scheduled 배치가 직렬로 실행된다.
+  # 대기열 입장(1초 주기 핫패스)이 헬스체크/Redis 복구 배치에 밀리지 않도록 분리한다.
+  # @Scheduled 메서드를 추가하면 이 값도 함께 올릴 것 (SchedulingConfig 참고).
+  task:
+    scheduling:
+      pool:
+        size: ${SCHEDULING_POOL_SIZE:5}
 
   # ---------- Kafka ----------
   kafka:
@@ -39,3 +72,60 @@ spring:
 
 server:
   port: ${SERVER_PORT:8080}
+  tomcat:
+    threads:
+      max: 1000          # 동시 처리 스레드 수 1000개로 상향
+      min-spare: 100     # 대기 스레드 100개 유지
+    max-connections: 30000   # 동시 TCP 연결 30000개 수용
+    accept-count: 10000      # 대기 큐 크기 10000개로 확장 (타임아웃 방어)
+    connection-timeout: 20000
+
+# ---------- Coupon Queue Settings ----------
+coupon:
+  queue:
+    max-size: ${COUPON_QUEUE_MAX_SIZE:30000}
+    token-ttl-seconds: ${COUPON_QUEUE_TOKEN_TTL:60}
+    admission-rate: ${COUPON_QUEUE_ADMISSION_RATE:1000}
+    admission-interval-ms: ${COUPON_QUEUE_ADMISSION_INTERVAL_MS:1000}
+
+# ---------- Coupon Kafka Consumer Settings ----------
+# concurrency: 파티션 수와 반드시 일치시킬 것.
+# 초과하면 일부 스레드가 파티션을 배정받지 못해 유휴 상태 + 순서 보장 깨짐.
+# 확인 명령: kafka-topics.sh --describe --topic coupon-issued-events --bootstrap-server localhost:9092
+  kafka:
+    consumer:
+      group-id: ${COUPON_KAFKA_CONSUMER_GROUP_ID:coupon-issue-consumer-group}
+      concurrency: ${COUPON_KAFKA_CONSUMER_CONCURRENCY:3}
+      # 배치(poll 결과)를 이 크기로 잘라 트랜잭션 단위로 묶는다. 너무 크면 poison-pill(청크 내
+      # 하나 실패 시 청크 전체 롤백) 영향 범위가 커지고, 너무 작으면 커밋 절감 효과가 준다.
+      chunk-size: ${COUPON_KAFKA_CONSUMER_CHUNK_SIZE:100}
+
+  # ---------- Redis 재구성(UBM-33) 운영 자동화 ----------
+  redis-recovery:
+    # RedisAutoRecoveryScheduler: 열려 있는 정책 중 stock 키가 없는 것을 이 주기로 찾아
+    # 자동 recover 한다 (최초 오픈 초기화 + lag 실패 후 재시도 + 여러 정책 일괄 처리를 겸함).
+    auto-interval-ms: ${COUPON_REDIS_RECOVERY_AUTO_INTERVAL_MS:5000}
+    # RedisAutoRecoveryScheduler.reconcileReservedDrift: stock 키는 멀쩡한데 reserved ZSET에
+    # DB엔 이미 커밋된 항목이 남아있는 "부분 드리프트"(Redis 장애 중 confirmRedisState 콜백이
+    # 실패한 경우)를 이 주기로 정리한다. 위 stock 복구와 독립된 주기다.
+    reserved-drift-interval-ms: ${COUPON_REDIS_RESERVED_DRIFT_INTERVAL_MS:10000}
+    # RedisAutoRecoveryScheduler.detectStaleReservedDrift: Check D(진짜 재고 누수 — reserved에
+    # DB에도 없이 임계 시간을 넘도록 남은 건)를 이 주기로 찾아 reconciliation_log에만 등록한다
+    # (자동 재발급은 안 함). app.verification.stale-reserved-threshold(기본 5분)보다 충분히
+    # 짧게 둬야 임계 시간을 넘긴 직후에 가깝게 발견한다.
+    stale-reserved-interval-ms: ${COUPON_REDIS_STALE_RESERVED_INTERVAL_MS:60000}
+
+  # ---------- 정합성 재처리 큐 자동화 (이슈 #2/#3) ----------
+  reconciliation:
+    # ReconciliationAutoRetryScheduler: EVENT_REPUBLISH(Kafka 발행 실패)/DLT_REPROCESS(컨슈머
+    # 최종 실패) 상태의 PENDING/FAILED 건을 사람 개입 없이 이 주기로 재발행한다.
+    # 60초로 넉넉히 잡은 이유: 직전 재시도의 Kafka ack(whenComplete)가 아직 안 돌아왔는데
+    # 같은 건을 또 재시도하면 불필요한 중복 발행이 생긴다(멱등성 덕에 안전하긴 하지만 낭비).
+    auto-retry-interval-ms: ${COUPON_RECONCILIATION_AUTO_RETRY_INTERVAL_MS:60000}
+
+# ---------- 인프라 헬스체크 모니터링 ----------
+infra:
+  health-monitor:
+    # InfraHealthMonitorScheduler: /api/health?deep=true 를 이 주기로 폴링해서
+    # 상태 전환(UP<->DOWN) 시점에만 OpsAlertNotifier로 알린다.
+    interval-ms: ${INFRA_HEALTH_MONITOR_INTERVAL_MS:5000}

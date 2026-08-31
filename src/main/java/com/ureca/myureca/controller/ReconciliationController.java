@@ -1,0 +1,52 @@
+package com.ureca.myureca.controller;
+
+import com.ureca.myureca.domain.reconciliation.ReconciliationStatus;
+import com.ureca.myureca.domain.reconciliation.ReconciliationType;
+import com.ureca.myureca.dto.response.PageResponse;
+import com.ureca.myureca.dto.response.ReconciliationLogResponse;
+import com.ureca.myureca.service.ReconciliationService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/api/admin/reconciliation")
+@RequiredArgsConstructor
+public class ReconciliationController {
+
+    private final ReconciliationService reconciliationService;
+
+    /**
+     * 정합성 복구 - 수동 재처리 실행.
+     * logId를 주면 단건 재처리, 생략하면 type(기본값 EVENT_REPUBLISH)에 해당하는 전체 재처리.
+     */
+    @PostMapping("/retry")
+    public ResponseEntity<?> retry(
+            @RequestParam(required = false) Long logId,
+            @RequestParam(required = false, defaultValue = "EVENT_REPUBLISH") ReconciliationType type
+    ) {
+        if (logId != null) {
+            return ResponseEntity.accepted().body(reconciliationService.retryOne(logId));
+        }
+        return ResponseEntity.accepted().body(reconciliationService.retryAll(type));
+    }
+
+    /**
+     * 정합성 복구 - 재처리 이력 조회. policyId/type/status 전부 선택 필터.
+     */
+    @GetMapping("/logs")
+    public PageResponse<ReconciliationLogResponse> getLogs(
+            @RequestParam(required = false) Long policyId,
+            @RequestParam(required = false) ReconciliationType type,
+            @RequestParam(required = false) ReconciliationStatus status,
+            @PageableDefault(size = 10) Pageable pageable
+    ) {
+        return reconciliationService.getReconciliationLogs(policyId, type, status, pageable);
+    }
+}

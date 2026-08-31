@@ -1,0 +1,287 @@
+import { useQuery } from '@tanstack/react-query';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { getCouponIssuanceMetrics, getCouponStatus, getPolicy } from '../../lib/endpoints.js';
+import { useAdminPolicies } from '../../lib/hooks.js';
+import { Badge, Card, LoadingBlock, PageHeader, ProgressBar, StatTile, Tabs } from '../../components/ui.jsx';
+import IssuanceChart from '../../components/IssuanceChart.jsx';
+import PolicyPicker from '../../components/admin/PolicyPicker.jsx';
+import InfraStatusBar from '../../components/admin/InfraStatusBar.jsx';
+import { QueueControlPanel } from './AdminQueueControlPage.jsx';
+import { VerificationPanel } from './AdminVerificationPage.jsx';
+import { comma, policyStatusBadge } from '../../lib/format.js';
+
+const TIMELINE_SECONDS = 120;
+
+function StatusTab({ policyId, policy }) {
+  const statusQ = useQuery({
+    queryKey: ['policy-status', policyId],
+    queryFn: () => getCouponStatus(policyId),
+    refetchInterval: 2000,
+  });
+  const metricsQ = useQuery({
+    queryKey: ['policy-issuance-metrics', policyId],
+    queryFn: () => getCouponIssuanceMetrics(policyId, TIMELINE_SECONDS),
+    refetchInterval: 1000,
+  });
+
+  const s = statusQ.data;
+  const m = metricsQ.data;
+  // toFixed(1)은 반올림 때문에 99.99%처럼 완전 소진이 아닌데도 "100.0%"로 뭉개져 보이는
+  // 문제가 있었다(실측: 9999/10000 발급인데 100%로 표시됨). 백엔드가 이미 소수 둘째자리까지
+  // 정확히 계산해서 주므로(CouponStatusService.getCouponStatus) 그 정밀도를 그대로 보여준다.
+  const rate = s ? s.issueRate.toFixed(2) : '0.00';
+
+  // 남은 재고를 지금 속도(직전 1초 발급 수)로 나눠 대략적인 소진 예상 시간을 보여준다.
+  let etaLabel = '-';
+  if (s && m && m.issuedLastSecond > 0 && s.remainingQuantity > 0) {
+    const etaSeconds = s.remainingQuantity / m.issuedLastSecond;
+    if (etaSeconds < 1) etaLabel = '1초 이내';
+    else if (etaSeconds < 60) etaLabel = `약 ${Math.round(etaSeconds)}초 후`;
+    else etaLabel = `약 ${Math.round(etaSeconds / 60)}분 후`;
+  } else if (s && s.remainingQuantity === 0) {
+    etaLabel = '품절';
+  }
+
+  if (statusQ.isLoading) return <LoadingBlock />;
+  if (!s) return null;
+
+  const soldOut = s.remainingQuantity === 0;
+
+  // 이 화면은 출처가 두 개다.
+  //   KPI/진행바 = Redis 실시간 재고(총 수량 − stock 키). /issue 성공 즉시 반응한다.
+  //   그래프/사용·만료 = DB coupon_issue. Kafka 컨슈머가 행을 넣어야 반응한다.
+  //
+  // 예전에는 "DB엔 발급이 있는데 Redis 재고는 총 수량 그대로"인 상태를 감지해 빨간 경고 카드를
+  // 띄웠는데, 두 출처를 각각 다른 주기로 폴링하다 보니 부하테스트 중에 한쪽만 먼저 갱신되는
+  // 찰나에 경고가 떴다 사라지기를 반복했다(오탐). 실제 Redis 재고 키 유실은 상단 인프라 상태 바와
+  // 정합성 검증에서 훨씬 정확하게 드러나므로, 이 화면에서는 표시하지 않는다.
+
+  return (
+    <div className="space-y-4">
+      {/* KPI — dev 대시보드처럼 큰 숫자가 주인공. 재고 소진이면 레드로 전환된다.
+          카드마다 출처가 달라서(재고는 Redis, 속도는 DB) 카드 단위로 표시한다. */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <Kpi
+          label="발급 완료"
+          value={comma(s.issuedQuantity)}
+          sub={`총 ${comma(s.totalQuantity)}장`}
+          tone="mint"
+          hero
+          source="redis"
+        />
+        <Kpi
+          label="잔여 수량"
+          value={comma(s.remainingQuantity)}
+          sub={soldOut ? '재고 소진' : `발급률 ${rate}%`}
+          tone={soldOut ? 'danger' : 'plain'}
+          source="redis"
+        />
+        <Kpi
+          label="초당 발급 속도"
+          value={m ? `${comma(m.issuedLastSecond)}` : '-'}
+          sub="건/초 · 직전 1초"
+          source="db"
+        />
+        <Kpi label="예상 소진 시점" value={etaLabel} sub="현재 속도 기준" small source="mixed" />
+      </div>
+
+      {/* 발급률 진행바 */}
+      <Card className="p-5">
+        <div className="flex items-end justify-between mb-2">
+          <div>
+            <p className="text-[12px] font-bold text-sub flex items-center gap-2">
+              발급률 <SourceTag source="redis" />
+            </p>
+            <p className="mt-1 text-[15px] font-bold text-ink nums">
+              {comma(s.issuedQuantity)} / {comma(s.totalQuantity)}장
+            </p>
+          </div>
+          <span className={`text-[28px] font-extrabold nums ${soldOut ? 'text-danger' : 'text-mint'}`}>{rate}%</span>
+        </div>
+        <ProgressBar value={s.issuedQuantity} max={s.totalQuantity} tone={soldOut ? 'danger' : 'mint'} />
+      </Card>
+
+      {/* 실시간 추이 */}
+      <Card className="p-5">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-[15px] font-bold text-ink flex items-center gap-2">
+            실시간 발급 추이 <SourceTag source="db" />
+          </h2>
+          {/* 재고 소진은 Redis 실시간 상태(soldOut)가 서버 status보다 빠르므로 그쪽을 우선한다.
+              나머지(오픈 전 / 마감)는 서버가 계산해준 status를 그대로 따른다. */}
+          {soldOut ? (
+            <Badge tone="done">소진 · 정지</Badge>
+          ) : (
+            (() => {
+              const b = policyStatusBadge(policy?.status);
+              return <Badge tone={b.tone}>{policy?.status === 'OPEN' ? '발급 중' : b.label}</Badge>;
+            })()
+          )}
+        </div>
+        <p className="text-[12px] text-sub mb-3">
+          최근 {TIMELINE_SECONDS}초, 1초 단위 확정 건수 · DB에 확정된 시점이 아니라 발급 요청이 성공한
+          시각(issued_at) 기준으로 묶습니다
+        </p>
+        {metricsQ.isLoading ? (
+          <LoadingBlock label="그래프 불러오는 중..." />
+        ) : (
+          <IssuanceChart points={m?.timeline ?? []} />
+        )}
+      </Card>
+
+      {/* 부가 지표 — 셋 다 DB 출처라 묶어서 한 번만 표시한다 */}
+      <div className="flex items-center gap-2 pt-1">
+        <h2 className="text-[15px] font-bold text-ink">부가 지표</h2>
+        <SourceTag source="db" />
+      </div>
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+        <StatTile label="사용 완료" value={m ? comma(m.usedCount) : '-'} />
+        <StatTile label="만료" value={m ? comma(m.expiredCount) : '-'} />
+        <StatTile label="총 발행 수량" value={comma(s.totalQuantity)} />
+      </div>
+
+      {/* 발급 소요 시간 — DB(created_at 기준) 반영 완료까지만 보여준다. Redis 완료 시간은
+          제외했다: Redis는 요청 성공 즉시라 사실상 항상 0에 가깝고, 실제로 궁금한 건 "사용자가
+          체감하는 전체 지연(E2E)"이기 때문이다. */}
+      {m && m.dbElapsedMs != null && (
+        <>
+          <div className="flex items-center gap-2 pt-1">
+            <h2 className="text-[15px] font-bold text-ink">발급 소요 시간</h2>
+          </div>
+          <div className="grid grid-cols-1 max-w-md gap-4">
+            <ElapsedCard
+              label="DB 반영 완료 (E2E)"
+              ms={m.dbElapsedMs}
+              sub="첫 issued_at ~ 마지막 created_at"
+              desc="Redis 발급 시작부터 Kafka Consumer가 마지막 건을 DB에 넣을 때까지 전체 지연"
+              source="db"
+            />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// 숫자의 출처. 같은 화면인데 Redis(실시간 재고)와 DB(coupon_issue 집계)가 섞여 있어,
+// 어느 쪽을 보고 있는지 모르면 둘이 어긋난 순간을 버그로 오해하게 된다.
+const SOURCE_META = {
+  redis: {
+    label: 'Redis',
+    title: 'Redis 실시간 재고(총 수량 − stock 키) 기준 — /issue 성공 즉시 반영됩니다.',
+  },
+  db: {
+    label: 'DB',
+    title: 'DB coupon_issue 테이블 집계 기준 — Kafka 컨슈머가 행을 넣은 뒤 반영됩니다.',
+  },
+  mixed: {
+    label: 'Redis+DB',
+    title: 'Redis 잔여 재고를 DB 기준 초당 발급 속도로 나눈 값이라 두 출처가 함께 쓰입니다.',
+  },
+};
+
+export function SourceTag({ source }) {
+  const meta = SOURCE_META[source];
+  if (!meta) return null;
+  return (
+    <span
+      title={meta.title}
+      className="inline-flex items-center h-5 px-1.5 rounded text-[10px] font-bold bg-surface text-sub cursor-help"
+    >
+      {meta.label}
+    </span>
+  );
+}
+
+// dev 대시보드의 KPI 카드 — 라벨은 작게, 숫자가 주인공(nums로 자릿수 흔들림 방지).
+function Kpi({ label, value, sub, tone = 'plain', hero, small, source }) {
+  const color = tone === 'mint' ? 'text-mint' : tone === 'danger' ? 'text-danger' : 'text-ink';
+  const ring = hero ? `ring-1 ring-inset ${tone === 'danger' ? 'ring-danger' : 'ring-mint'}` : '';
+  return (
+    <Card className={`p-5 ${ring}`}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[12px] font-bold text-sub">{label}</p>
+        <SourceTag source={source} />
+      </div>
+      <p className={`mt-2 ${small ? 'text-[22px]' : 'text-[36px]'} leading-none font-extrabold nums ${color}`}>
+        {value}
+      </p>
+      <p className="mt-2 text-[12px] text-sub">{sub}</p>
+    </Card>
+  );
+}
+
+// 소요 시간 카드 — ms를 사람이 읽기 쉬운 형태로 변환해 보여준다.
+function ElapsedCard({ label, ms, sub, desc, source }) {
+  let display = '-';
+  let detail = '';
+  if (ms != null) {
+    if (ms < 1000) {
+      display = `${ms}ms`;
+    } else {
+      const sec = (ms / 1000).toFixed(2);
+      display = `${sec}초`;
+      detail = `${Number(ms).toLocaleString('ko-KR')}ms`;
+    }
+  }
+  return (
+    <Card className="p-5">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[12px] font-bold text-sub">{label}</p>
+        <SourceTag source={source} />
+      </div>
+      <p className="mt-2 text-[28px] leading-none font-extrabold nums text-ink">{display}</p>
+      {detail && <p className="mt-1 text-[13px] font-bold nums text-sub">{detail}</p>}
+      <p className="mt-2 text-[11px] text-sub leading-snug">{sub}</p>
+      <p className="mt-0.5 text-[11px] text-sub/60 leading-snug">{desc}</p>
+    </Card>
+  );
+}
+
+// 부하테스트·재처리는 이 작업 공간에서 뺐다 — 부하테스트는 화면이 아니라 CLI(k6)로 돌리고,
+// 재처리는 특정 정책이 아니라 전체를 훑어보는 작업이라 전역 화면(/admin/reconciliation,
+// /admin/load-test)에 그대로 남아있다. 그쪽 패널 컴포넌트도 각 페이지에 그대로 있다.
+const TABS = [
+  { value: 'status', label: '현황' },
+  { value: 'queue', label: '대기열' },
+  { value: 'verification', label: '정합성 검증' },
+];
+
+export default function AdminPolicyWorkspacePage() {
+  const { policyId: policyIdParam } = useParams();
+  const policyId = Number(policyIdParam);
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  // 없어진 탭(load-test/reconciliation)을 가리키는 예전 북마크는 현황으로 되돌린다 —
+  // 안 그러면 탭 바만 뜨고 본문이 통째로 비어 보인다.
+  const requestedTab = searchParams.get('tab');
+  const tab = TABS.some((t) => t.value === requestedTab) ? requestedTab : 'status';
+
+  const policiesQ = useAdminPolicies();
+  const policyQ = useQuery({ queryKey: ['admin-policy', policyId], queryFn: () => getPolicy(policyId) });
+
+  return (
+    <div className="flex flex-col gap-4">
+      <PageHeader
+        title={policyQ.data ? policyQ.data.title : `정책 #${policyId}`}
+        sub={`#${policyId}`}
+        right={
+          <div className="flex items-center gap-3">
+            <InfraStatusBar />
+            <PolicyPicker
+              value={String(policyId)}
+              onChange={(id) => navigate(`/admin/${id}?tab=${tab}`)}
+              policies={policiesQ.data?.content}
+            />
+          </div>
+        }
+      />
+
+      <Tabs options={TABS} value={tab} onChange={(v) => setSearchParams({ tab: v })} />
+
+      {tab === 'status' && <StatusTab policyId={policyId} policy={policyQ.data} />}
+      {tab === 'queue' && <QueueControlPanel policyId={policyId} allowGlobalToggle={false} />}
+      {tab === 'verification' && <VerificationPanel policyId={policyId} />}
+    </div>
+  );
+}
