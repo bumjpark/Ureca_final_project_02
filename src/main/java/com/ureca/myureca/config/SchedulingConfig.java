@@ -14,10 +14,24 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 @EnableScheduling
 public class SchedulingConfig {
 
-    /** 현재 {@code @Scheduled} 배치 5개(QueueAdmission, InfraHealthMonitor, RedisAutoRecovery,
-     *  ReconciliationAutoRetry, CouponPolicyCacheService의 notFoundCache 정리(#24)) + 여유 1.
-     *  배치를 추가하면 이 값도 함께 올릴 것. */
-    @Value("${spring.task.scheduling.pool.size:6}")
+    /**
+     * 현재 {@code @Scheduled} <b>메서드</b> 7개 + 여유 3.
+     *
+     * <p>예전 주석은 "배치 5개 + 여유 1"이라 6으로 잡혀 있었는데, 그 5는 <b>클래스</b> 수였다 —
+     * {@code RedisAutoRecoveryScheduler} 하나가 서로 다른 주기의 메서드 3개
+     * ({@code recoverMissingStock} 5초 / {@code reconcileReservedDrift} 10초 /
+     * {@code detectStaleReservedDrift} 60초)를 갖고 있어서 실제 스케줄 대상은 7개다. 즉 여유가
+     * 1이 아니라 -1이었고, 배치 하나가 길어지면 다른 배치가 통째로 밀렸다.
+     *
+     * <p>실제로 2026-08-31 실측에서 {@code detectStaleReservedDrift}가 미아 예약 11,000건을
+     * 등록하며 스레드를 2분간 점유하자 {@code recoverMissingStock}이 밀렸고, 신규 정책의 Redis
+     * 재고 키가 초기화되지 않아 발급 요청 20,000건이 전량 500으로 실패했다. 등록 로직 자체는
+     * 배치로 고쳤지만({@code VerificationAsyncTrigger.registerRedisOnlyDrift}), 한 배치가 느려도
+     * 다른 배치가 굶지 않도록 풀 자체에도 여유를 둔다.
+     *
+     * <p>배치(메서드 기준)를 추가하면 이 값도 함께 올릴 것.
+     */
+    @Value("${spring.task.scheduling.pool.size:10}")
     private int poolSize;
 
     @Bean
