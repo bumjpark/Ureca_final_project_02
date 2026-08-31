@@ -1,5 +1,5 @@
 import { Suspense, lazy } from 'react';
-import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useSession } from './lib/session.jsx';
 import { LoadingBlock } from './components/ui.jsx';
 
@@ -22,6 +22,7 @@ const AdminVerificationReportDetailPage = lazy(() => import('./pages/admin/Admin
 const AdminReconciliationPage = lazy(() => import('./pages/admin/AdminReconciliationPage.jsx'));
 const AdminLoadTestPage = lazy(() => import('./pages/admin/AdminLoadTestPage.jsx'));
 const AdminMockNotificationPage = lazy(() => import('./pages/admin/AdminMockNotificationPage.jsx'));
+const AdminScaleTestPage = lazy(() => import('./pages/admin/AdminScaleTestPage.jsx'));
 
 // 정책 단위 작업(대기열/재처리/부하테스트)은 정책 작업 공간(/admin/:policyId) 안의 탭으로
 // 들어가서 최상위 탭에서는 뺐다 — 예전처럼 매번 정책을 다시 고를 필요가 없다. 정합성 검증은
@@ -32,6 +33,7 @@ const ADMIN_NAV = [
   { to: '/admin', label: '정책 관리' },
   { to: '/admin/verification', label: '전체 정합성 검증' },
   { to: '/admin/mock-notifications', label: 'Mock 알림' },
+  { to: '/admin/scale-test', label: '300만 건 규모 테스트' },
 ];
 
 function TopBar() {
@@ -119,9 +121,11 @@ function RequireRole({ role, children }) {
 }
 
 export default function App() {
+  // 진입 화면(역할 선택)은 자체 브랜드 패널이 있어서 상단바를 감춘다.
+  const { pathname } = useLocation();
   return (
     <div className="min-h-screen">
-      <TopBar />
+      {pathname !== '/' && <TopBar />}
       <Routes>
         <Route path="/" element={<RoleSelectPage />} />
         <Route path="/select-user" element={<UserSelectPage />} />

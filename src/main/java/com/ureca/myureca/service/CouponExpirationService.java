@@ -13,6 +13,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 마감 기한(closeAt)이 지난 쿠폰 정책 및 발급 쿠폰의 DB 상태를 EXPIRED 로 청크 단위로 안전하게 분할 변경하는 서비스.
+ *
+ * <p>수백만 건의 대용량 데이터 환경에서도 단일 트랜잭션의 락(Lock) 점유 및 Undo Log 폭발을 방지하기 위해,
+ * 기본 5,000건 단위로 쪼개어 독립 커밋({@code REQUIRES_NEW})하며 순차 처리한다.
  */
 @Slf4j
 @Service
@@ -54,6 +57,7 @@ public class CouponExpirationService {
             totalAffected += affected;
 
             if (affected < size) {
+                // 남은 대상이 청크 크기보다 작으면 모든 대상 처리가 끝났음을 의미
                 break;
             }
 

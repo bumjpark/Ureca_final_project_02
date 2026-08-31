@@ -30,4 +30,7 @@ public interface CouponPolicyRepository extends JpaRepository<CouponPolicy, Long
     List<CouponPolicy> findExpiredPolicies(@Param("now") LocalDateTime now);
 
     Page<CouponPolicy> findByStatusAndDeletedAtIsNull(CouponPolicyStatus status, Pageable pageable);
+
+    /** ScaleTestService(300만 건 규모 데모)가 자기가 만든 정책만 찾을 때 — 소프트 삭제 여부 무관. */
+    List<CouponPolicy> findByTitleStartingWithOrderByIdAsc(String titlePrefix);
 }

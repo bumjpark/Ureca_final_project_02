@@ -16,8 +16,13 @@ export function searchUsers(search, page = 0, size = 20) {
 }
 
 // ── 쿠폰 정책 ────────────────────────────────────────────────
-export const listPolicies = (page = 0, size = 50) =>
-  apiJson(`/api/admin/coupon-policies?page=${page}&size=${size}`);
+// sort는 Spring Pageable 표준 형식("id,desc" 등). 서버가 Pageable을 그대로 받으므로
+// 별도 백엔드 변경 없이 정렬이 적용된다. 안 넘기면 기존처럼 DB 기본 순서(id 오름차순).
+export const listPolicies = (page = 0, size = 50, sort) =>
+  apiJson(
+    `/api/admin/coupon-policies?page=${page}&size=${size}` +
+      (sort ? `&sort=${encodeURIComponent(sort)}` : ''),
+  );
 
 export const getPolicy = (policyId) =>
   apiJson(`/api/admin/coupon-policies/${policyId}`);
@@ -175,6 +180,14 @@ export function listMockNotificationLogs({ policyId, page = 0, size = 20 } = {})
   if (policyId != null) qs.set('policyId', String(policyId));
   return apiJson(`/api/mock/notifications/logs?${qs.toString()}`);
 }
+
+// ── 300만 건 규모 정합성 검증 데모 (ScaleTestService) ──────────
+// 시딩/전체검증은 각각 수 분(시딩) ~ 수 분(검증)까지 걸릴 수 있다 — 호출부가 로딩 상태를
+// 충분히 길게 보여줘야 한다(react-query 기본 타임아웃에 걸리지 않도록 timeout 없이 그대로 둠).
+export const seedScaleTest = () => apiJson('/api/admin/scale-test/seed', { method: 'POST' });
+export const verifyAllScaleTest = () => apiJson('/api/admin/scale-test/verify-all', { method: 'POST' });
+export const getScaleTestStatus = () => apiJson('/api/admin/scale-test/status');
+export const deleteScaleTest = () => api('/api/admin/scale-test', { method: 'DELETE' });
 
 // ── 인프라 헬스체크 (deep = DB/Redis/Kafka 병렬 점검) ─────────
 export async function getHealth(deep = true) {

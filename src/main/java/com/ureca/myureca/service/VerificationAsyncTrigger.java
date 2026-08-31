@@ -16,6 +16,8 @@ import java.util.Set;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
@@ -188,7 +190,11 @@ public class VerificationAsyncTrigger {
 
         // Check D: 미아 예약(stale RESERVED) — Lua가 재고를 깎고 reserved에 넣었는데 오래도록
         // 아무도 확정해주지 않은 유저. 정상 발급이라면 컨슈머가 1초 안에 issued로 옮기므로,
-        // 임계 시간을 넘긴 항목은 그 사이에 이벤트가 증발했다는 뜻이다.
+        // 임계 시간을 넘긴 항목은 그 사이에 이벤트가 증발했다는 뜻이다. 아래 카운트/CSV에 계속
+        // 쓰이므로 목록 자체는 여기서 직접 계산해 갖고 있는다 — 등록(reconciliation_log 적재)만
+        // RedisAutoRecoveryScheduler가 주기적으로 부르는 것과 같은 로직({@link
+        // #detectAndRegisterStaleReserved})을 재사용한다. eventKey로 중복 방지되므로 두 경로가
+        // 겹쳐 불러도 안전하다.
         Set<Long> staleReservedUserIds = readStaleReservedUserIds(policyId);
         staleReservedUserIds.removeAll(dbUserIds); // 이미 DB에 있으면 ZREM만 못 한 것이라 유실이 아니다
         if (!staleReservedUserIds.isEmpty()) {
@@ -219,15 +225,18 @@ public class VerificationAsyncTrigger {
                 policyId, (long) liveN);
         Set<Long> expectedTopN;
         int fcfsMismatchCount;
+        boolean fcfsChecked;
         if (coveredCount < liveN) {
             log.warn("정책 id={} queue_join_log의 순번 구간 [1,{}] 적재분({}건)이 아직 채워지지 않아 "
                     + "선착순(FCFS) 검증을 건너뜁니다 (queue-join-events 컨슈머 미가동 또는 캐치업 중으로 추정).",
                     policyId, liveN, coveredCount);
             expectedTopN = Set.of();
             fcfsMismatchCount = 0;
+            fcfsChecked = false;
         } else {
             expectedTopN = fetchExpectedTopN(policyId, liveN);
             fcfsMismatchCount = countMismatch(dbUserIds, expectedTopN);
+            fcfsChecked = true;
         }
 
         int mismatchCount = diffMismatchCount + overIssuedCount + stockLeakCount
@@ -251,7 +260,7 @@ public class VerificationAsyncTrigger {
                 || !lifecycleAnomalies.isEmpty() || fcfsMismatchCount > 0 || !staleReservedUserIds.isEmpty()) {
             MismatchFindings findings = new MismatchFindings(
                     dbUserIds, redisUserIds, overIssuedCount, stockLeakCount, lifecycleAnomalies, expectedTopN,
-                    staleReservedUserIds);
+                    staleReservedUserIds, fcfsChecked);
             csvPath = mismatchReportWriter.write(policyId, runAt, findings);
         }
 
@@ -261,14 +270,29 @@ public class VerificationAsyncTrigger {
         }
     }
 
+    /**
+     * {@code issued} SET 전체 멤버 조회. {@code SMEMBERS}(단일 O(N) 블로킹 명령)가 아니라
+     * {@code SSCAN} 커서 반복을 쓴다 — 실측(2026-08-30, 300만 건 규모 정합성 검증)으로
+     * {@code SMEMBERS}가 300만 멤버에서 서버 측만 1.53초를 잡아먹어, Redis 장애를 빨리
+     * 감지하려고 일부러 짧게 잡은 클라이언트 타임아웃(1초, {@code spring.data.redis.timeout})을
+     * 넘겨 검증 자체가 {@code QueryTimeoutException}으로 실패하는 걸 확인했다. {@code SSCAN}은
+     * 한 번에 작은 배치(COUNT)만 가져오는 여러 번의 왕복으로 쪼개지므로, Redis의 단일 이벤트
+     * 루프를 한 번에 오래 붙잡지 않는다.
+     *
+     * <p><b>COUNT 값 튜닝(실측)</b>: 처음엔 COUNT=2000으로 재검증했는데, 300만 멤버 기준 왕복이
+     * 1,500번이나 필요해 검증 전체가 35초(SMEMBERS+타임아웃 5초 완화 기준) → **145초**로 4배
+     * 넘게 느려졌다 — "한 번에 오래 안 붙잡는다"를 지키려고 왕복을 너무 잘게 쪼갠 대가였다.
+     * SMEMBERS 실측(1.53초/300만 건 ≈ 510ns/멤버)을 기준으로 역산하면 COUNT=50,000이어도 배치
+     * 하나당 서버 처리 시간은 ~25ms(1초 타임아웃 대비 40배 여유)에 불과해 안전하고, 왕복 횟수는
+     * 60번으로 줄어든다 — "안전 마진은 그대로 유지하면서 왕복을 최소화"하는 절충점.
+     */
     private Set<Long> readRedisIssuedUserIds(Long policyId) {
-        Set<String> raw = redisTemplate.opsForSet().members(RedisKeys.couponIssued(policyId));
-        if (raw == null) {
-            return Set.of();
-        }
-        Set<Long> result = new HashSet<>(raw.size());
-        for (String value : raw) {
-            result.add(Long.valueOf(value));
+        Set<Long> result = new HashSet<>();
+        ScanOptions options = ScanOptions.scanOptions().count(50_000).build();
+        try (Cursor<String> cursor = redisTemplate.opsForSet().scan(RedisKeys.couponIssued(policyId), options)) {
+            while (cursor.hasNext()) {
+                result.add(Long.valueOf(cursor.next()));
+            }
         }
         return result;
     }
@@ -276,6 +300,41 @@ public class VerificationAsyncTrigger {
     private long readRedisReservedCount(Long policyId) {
         Long size = redisTemplate.opsForZSet().size(RedisKeys.couponReserved(policyId));
         return (size == null) ? 0L : size;
+    }
+
+    /**
+     * Check D만 독립 실행 — {@link #performVerification}(전체 검증)과 달리 검증 리포트를
+     * 만들지도, CSV를 쓰지도 않고, "재고 남은 정책이 없어야 한다"는 제약도 없다. Check D(미아
+     * 예약)는 판매가 진행 중이든 아니든 안전하게 돌릴 수 있는 검사라서 그렇다 — 반면 Check
+     * C(FCFS)는 판매가 끝나야 "기대 상위 N명"이 의미를 갖기 때문에 이 메서드에 넣지 않았다.
+     *
+     * <p>전체 검증은 사람이 눌러야만 실행되는데(재고 남은 정책이 있으면 기본적으로 거부), 그
+     * 말은 곧 진짜 재고 누수(미아 예약)가 사람이 검증을 누르기 전까지 아무도 모르게 방치될 수
+     * 있다는 뜻이다 — {@link RedisAutoRecoveryScheduler}가 이 메서드를 주기적으로 호출해 그
+     * 공백을 메운다.
+     *
+     * <p>발견해도 자동으로 재발급하지 않는다 — {@link #registerRedisOnlyDrift}와 동일한 이유로
+     * {@code reconciliation_log}(ISSUE_REPROCESS)에 등록해 가시성만 확보한다. 재발급 여부는
+     * 여전히 사람이 판단한다.
+     *
+     * @return 이번 호출에서 발견한 미아 예약 유저 수(이미 등록된 것도 포함 — 신규 등록 여부는
+     *         {@link #registerRedisOnlyDrift} 내부의 {@code existsByEventKey}가 조용히 걸러낸다)
+     */
+    @Transactional
+    public int detectAndRegisterStaleReserved(Long policyId) {
+        Set<Long> staleReservedUserIds = readStaleReservedUserIds(policyId);
+        if (staleReservedUserIds.isEmpty()) {
+            return 0;
+        }
+        Set<Long> dbUserIds = new HashSet<>(couponIssueRepository.findUserIdsByCouponPolicyId(policyId));
+        staleReservedUserIds.removeAll(dbUserIds); // 이미 DB에 있으면 ZREM만 못 한 것이라 유실이 아니다
+        if (staleReservedUserIds.isEmpty()) {
+            return 0;
+        }
+        log.error("🚨 정책 id={} 미아 예약(stale RESERVED) {}건 — 재고만 깎이고 발급이 확정되지 않은 유저",
+                policyId, staleReservedUserIds.size());
+        registerRedisOnlyDrift(policyId, staleReservedUserIds, LocalDateTime.now(), "RESERVED_STALE");
+        return staleReservedUserIds.size();
     }
 
     /**
@@ -499,7 +558,21 @@ public class VerificationAsyncTrigger {
             /** Check C(FCFS): 대기열 도착 순서 상위 N명(이론상 당첨자). dbUserIds와 비교해 CSV에 반영한다. */
             Set<Long> expectedTopN,
             /** Check D: 임계 시간을 넘도록 reserved에 남아있는 유저(미아 예약). */
-            Set<Long> staleReservedUserIds
+            Set<Long> staleReservedUserIds,
+            /**
+             * Check C가 실제로 수행됐는지(queue_join_log 적재분이 충분해서). false면 CSV
+             * 작성기가 EXPECTED_NOT_ISSUED/ISSUED_NOT_EXPECTED를 절대 계산하지 않는다.
+             *
+             * <p>이 플래그가 없으면(실측으로 재현한 버그, 2026-08-30 — {@code
+             * Docs/Verification-Batch-1M-Scale-Test.md}가 2026-08-27에 "고쳤다"고 기록했지만
+             * 실제로는 반영된 적이 없었다) — Check C가 스킵돼 {@code expectedTopN}이 그냥 빈
+             * Set이 되면, {@code dbUserIds - expectedTopN}(= dbUserIds 전체)이 전부
+             * "ISSUED_NOT_EXPECTED"(선착순 순번 밖인데 발급됨)로 CSV에 찍힌다 — "아직 FCFS
+             * 검증을 안 했다"가 아니라 "발급자 전원이 선착순을 위반했다"는 가짜 증거가 남는다.
+             * mismatchCount 집계 자체는 fcfsMismatchCount=0으로 정확했지만, CSV 상세 내역만
+             * 오염되는 조용한 버그라 리포트 목록만 보는 사람은 못 알아챈다.
+             */
+            boolean fcfsChecked
     ) {
     }
 
@@ -536,12 +609,18 @@ public class VerificationAsyncTrigger {
             appendLifecycleRows(csv, policyId, findings.lifecycleAnomalies(), runAt);
 
             // Check C(FCFS): 도착순 상위 N명(expectedTopN) vs 실제 DB 발급자(dbUserIds) 경계 비교.
-            Set<Long> expectedNotIssued = new HashSet<>(findings.expectedTopN());
-            expectedNotIssued.removeAll(findings.dbUserIds());
-            Set<Long> issuedNotExpected = new HashSet<>(findings.dbUserIds());
-            issuedNotExpected.removeAll(findings.expectedTopN());
-            appendUserRows(csv, policyId, expectedNotIssued, "EXPECTED_NOT_ISSUED", runAt);
-            appendUserRows(csv, policyId, issuedNotExpected, "ISSUED_NOT_EXPECTED", runAt);
+            // fcfsChecked가 false(스킵됨)면 expectedTopN이 그냥 빈 Set이라, 여기서 계산을 그대로
+            // 진행하면 dbUserIds 전원이 "ISSUED_NOT_EXPECTED"로 찍힌다 — "검증을 아직 안 했다"가
+            // "발급자 전원이 선착순 위반"으로 둔갑하는 실측으로 재현된 버그(2026-08-30, 300만 건
+            // 규모 시딩 도구로 발견). 스킵된 경우 두 유형 다 아예 계산하지 않는다.
+            if (findings.fcfsChecked()) {
+                Set<Long> expectedNotIssued = new HashSet<>(findings.expectedTopN());
+                expectedNotIssued.removeAll(findings.dbUserIds());
+                Set<Long> issuedNotExpected = new HashSet<>(findings.dbUserIds());
+                issuedNotExpected.removeAll(findings.expectedTopN());
+                appendUserRows(csv, policyId, expectedNotIssued, "EXPECTED_NOT_ISSUED", runAt);
+                appendUserRows(csv, policyId, issuedNotExpected, "ISSUED_NOT_EXPECTED", runAt);
+            }
 
             // Check D(미아 예약): 재고만 깎이고 발급이 확정되지 않은 유저.
             appendUserRows(csv, policyId, findings.staleReservedUserIds(), "RESERVED_STALE", runAt);
@@ -604,6 +683,15 @@ public class VerificationAsyncTrigger {
             if (!resolved.startsWith(root)) {
                 throw new IllegalStateException(
                         "reportUrl이 reportDir(" + root + ") 밖을 가리킵니다: " + storedReportUrl);
+            }
+            // 이름 그대로 "존재하는" 파일만 돌려준다. 예전에는 경로 형식과 디렉터리 이탈만 검사해서,
+            // 파일이 사라진 경우(컨테이너 재빌드로 reports 디렉터리가 날아가는 등) 호출부의
+            // Files.readAllLines()에서 NoSuchFileException이 UncheckedIOException으로 새어나가
+            // 500 INTERNAL_ERROR가 됐다. 준비돼 있던 VerificationReportFileMissingException(410 GONE)을
+            // 제대로 타도록 여기서 걸러낸다.
+            if (!Files.isRegularFile(resolved) || !Files.isReadable(resolved)) {
+                throw new IllegalStateException(
+                        "reportUrl이 가리키는 파일이 없거나 읽을 수 없습니다: " + resolved);
             }
             return resolved;
         }

@@ -107,6 +107,12 @@ services:
       # 부하테스트로 DB 커넥션 풀 경합이 병목으로 확인돼 실험용으로 조정 가능하게 노출
       # (기본값은 application.yml과 동일하게 20 유지 — .env/셸에서 오버라이드할 때만 바뀜)
       DB_HIKARI_MAX_POOL_SIZE: ${DB_HIKARI_MAX_POOL_SIZE:-20}
+    volumes:
+      # 검증 리포트 CSV(app.verification.report-dir, WORKDIR=/app 기준 상대경로 "reports")를
+      # 호스트에 남긴다. 예전에는 컨테이너 안에만 있어서 `up --build`로 앱을 다시 올릴 때마다
+      # 과거 리포트의 CSV가 통째로 사라졌다 — DB에는 report_url이 남아 있는데 파일만 없는
+      # 상태가 되어 상세 화면이 깨졌다. .gitignore에 이미 /reports/가 등록돼 있다.
+      - ./reports:/app/reports
     depends_on:
       mysql:
         condition: service_healthy

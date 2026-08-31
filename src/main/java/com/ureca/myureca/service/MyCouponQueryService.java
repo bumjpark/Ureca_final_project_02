@@ -84,6 +84,8 @@ public class MyCouponQueryService {
             if (status == null) {
                 return couponIssueRepository.findByUserId(userId, pageable);
             }
+            // EXPIRED, ISSUED 는 DB 물리 상태만으로 판단할 수 없다 — closeAt 도 함께 본다.
+            // USED 는 closeAt 과 무관하므로 기존 단순 쿼리를 그대로 사용한다.
             return switch (status) {
                 case EXPIRED -> couponIssueRepository.findByUserIdAndEffectiveStatusExpired(userId, now, pageable);
                 case ISSUED  -> couponIssueRepository.findByUserIdAndEffectiveStatusIssued(userId, now, pageable);

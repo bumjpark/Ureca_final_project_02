@@ -8,9 +8,11 @@ import com.ureca.myureca.repository.CouponIssueRepository;
 import com.ureca.myureca.repository.CouponPolicyRepository;
 import com.ureca.myureca.support.KafkaConsumerLagChecker;
 import com.ureca.myureca.support.RedisKeys;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -19,6 +21,7 @@ import java.util.concurrent.TimeUnit;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Service;
@@ -145,6 +148,61 @@ public class RedisRecoveryService {
                 policyId, issuedCount, remainingStock);
 
         return RedisRecoverResponse.success(policyId, policy.getTotalQuantity(), issuedCount, remainingStock, kafkaLag);
+    }
+
+    /**
+     * "부분 드리프트" 정리 — reserved ZSET에는 남아있지만 DB {@code coupon_issue}엔 이미
+     * 커밋된 유저를 issued SET으로 옮긴다.
+     *
+     * <p><b>왜 필요한가</b>: {@code CouponIssuedEventProcessor.confirmRedisState}는 DB 커밋
+     * 직후 {@code reserved → issued} 전환을 시도하는데, 그 순간 Redis가 죽어있으면 조용히
+     * 실패하고 넘어가도록 설계돼 있다(재시도가 Kafka를 다시 유발하면 인박스 체크에 걸려 이
+     * 메서드 자체에 다시 도달 못 하기 때문 — 클래스 주석 참고). 그 결과 발급 자체는 완전히
+     * 정상인데 reserved에 영구히 남는 항목이 생긴다. 실측(2026-08-30, 부하테스트 중 Redis
+     * 강제 종료): 954명이 이 상태로 남았고, {@code stock} 키는 멀쩡했기 때문에
+     * {@link #recover}를 트리거하는 {@link RedisAutoRecoveryScheduler}의 "stock 키 존재
+     * 여부" 판단으로는 전혀 감지되지 않았다 — 사람이 {@link #recover}를 수동 호출해야만
+     * 없어졌다.
+     *
+     * <p><b>{@link #recover}와 다른 점</b>: {@code recover}는 stock/reserved/issued
+     * 세 키를 통째로 재구성하며 Kafka lag=0을 요구한다(진행 중인 발급과 뒤섞이지 않기
+     * 위해). 이 메서드는 그럴 필요가 없다 — reserved에 있으면서 "DB에 이미 있는" 멤버만
+     * 정확히 골라 옮기는 것뿐이라, 진행 중인 발급(아직 DB에 없는 진짜 reserved)은
+     * 건드리지 않는다. 그래서 lag 게이트 없이 매 스케줄러 틱마다 가볍게 돌려도 안전하다.
+     *
+     * <p>동시성: {@code confirmRedisState}가 같은 순간 같은 멤버를 옮기고 있어도 안전하다 —
+     * {@code ZREM}은 이미 없는 멤버에 대해 0을 반환하는 무해한 no-op이고 {@code SADD}는
+     * 멱등이다.
+     *
+     * @return 이번 호출에서 실제로 옮긴(정리한) 유저 수
+     */
+    public int reconcileReservedDrift(Long policyId) {
+        String reservedKey = RedisKeys.couponReserved(policyId);
+        Set<String> reservedMembers = redisTemplate.opsForZSet().range(reservedKey, 0, -1);
+        if (reservedMembers == null || reservedMembers.isEmpty()) {
+            return 0;
+        }
+
+        List<Long> candidateUserIds = reservedMembers.stream().map(Long::valueOf).toList();
+        List<Long> confirmedInDb = couponIssueRepository.findUserIdsByCouponPolicyIdAndUserIdIn(
+                policyId, candidateUserIds);
+        if (confirmedInDb.isEmpty()) {
+            return 0;
+        }
+
+        String issuedKey = RedisKeys.couponIssued(policyId);
+        redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+            for (Long userId : confirmedInDb) {
+                byte[] member = String.valueOf(userId).getBytes(StandardCharsets.UTF_8);
+                connection.zSetCommands().zRem(reservedKey.getBytes(StandardCharsets.UTF_8), member);
+                connection.setCommands().sAdd(issuedKey.getBytes(StandardCharsets.UTF_8), member);
+            }
+            return null;
+        });
+
+        log.info("[RedisRecovery] policyId={} reserved 드리프트 {}건 정리(reserved→issued, DB에는 이미 커밋된 건들)",
+                policyId, confirmedInDb.size());
+        return confirmedInDb.size();
     }
 
     private String lockKey(Long policyId) {

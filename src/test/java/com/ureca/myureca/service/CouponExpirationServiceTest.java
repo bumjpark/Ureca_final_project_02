@@ -8,7 +8,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.ureca.myureca.domain.coupon.CouponPolicy;
-import com.ureca.myureca.domain.coupon.CouponPolicyStatus;
 import com.ureca.myureca.dto.response.CouponPolicyExpirationResponse;
 import com.ureca.myureca.repository.CouponPolicyRepository;
 import java.time.LocalDateTime;

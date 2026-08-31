@@ -105,6 +105,15 @@ coupon:
     # RedisAutoRecoveryScheduler: 열려 있는 정책 중 stock 키가 없는 것을 이 주기로 찾아
     # 자동 recover 한다 (최초 오픈 초기화 + lag 실패 후 재시도 + 여러 정책 일괄 처리를 겸함).
     auto-interval-ms: ${COUPON_REDIS_RECOVERY_AUTO_INTERVAL_MS:5000}
+    # RedisAutoRecoveryScheduler.reconcileReservedDrift: stock 키는 멀쩡한데 reserved ZSET에
+    # DB엔 이미 커밋된 항목이 남아있는 "부분 드리프트"(Redis 장애 중 confirmRedisState 콜백이
+    # 실패한 경우)를 이 주기로 정리한다. 위 stock 복구와 독립된 주기다.
+    reserved-drift-interval-ms: ${COUPON_REDIS_RESERVED_DRIFT_INTERVAL_MS:10000}
+    # RedisAutoRecoveryScheduler.detectStaleReservedDrift: Check D(진짜 재고 누수 — reserved에
+    # DB에도 없이 임계 시간을 넘도록 남은 건)를 이 주기로 찾아 reconciliation_log에만 등록한다
+    # (자동 재발급은 안 함). app.verification.stale-reserved-threshold(기본 5분)보다 충분히
+    # 짧게 둬야 임계 시간을 넘긴 직후에 가깝게 발견한다.
+    stale-reserved-interval-ms: ${COUPON_REDIS_STALE_RESERVED_INTERVAL_MS:60000}
 
   # ---------- 정합성 재처리 큐 자동화 (이슈 #2/#3) ----------
   reconciliation:
