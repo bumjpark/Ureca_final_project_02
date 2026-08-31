@@ -114,7 +114,8 @@ test
 
 
 ### 3-1. 아키텍처 설계도
-<img width="1632" height="712" alt="request-flow drawio" src="https://github.com/user-attachments/assets/e742dae3-8027-405f-a2c7-9707022b56b9" />
+<img width="1297" height="703" alt="image" src="https://github.com/user-attachments/assets/1b1146fa-b2d2-4385-a18e-8075592bf512" />
+
 
 
 ### 3-2. 요청 흐름
