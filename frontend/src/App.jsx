@@ -221,6 +221,7 @@ export default function App() {
           ['/admin/reconciliation', AdminReconciliationPage],
           ['/admin/load-test', AdminLoadTestPage],
           ['/admin/mock-notifications', AdminMockNotificationPage],
+          ['/admin/scale-test', AdminScaleTestPage],
         ].map(([path, Comp]) => (
           <Route
             key={path}

@@ -125,14 +125,19 @@ public class ScaleTestService {
     }
 
     /**
-     * 시딩된 정책 전부에 대해 순차로 정합성 검증(force=true)을 실행하고, 각 리포트가 끝날 때까지
-     * 기다렸다가 결과를 모아서 돌려준다. {@code performVerification}은 비동기라 폴링한다.
+     * 존재하는 정책 전부(이 도구가 만든 것 + 기존 부하테스트 등 다른 정책 전부)에 대해 순차로
+     * 정합성 검증(force=true)을 실행하고, 각 리포트가 끝날 때까지 기다렸다가 결과를 모아서
+     * 돌려준다. {@code performVerification}은 비동기라 폴링한다.
+     *
+     * <p><b>삭제({@link #delete()})와 스코프가 다르다</b> — 검증은 "지금 존재하는 모든 정책의
+     * 정합성을 한 번에 확인하고 싶다"는 요구라 전체를 대상으로 하지만, 삭제는 실수로 실제
+     * 데이터를 지우면 안 되므로 이 도구가 만든 {@code scale-3m-*} 정책만 계속 좁혀서 다룬다
+     * (2026-08-31 요구사항: "검증은 같이 하고 삭제는 300만 건 더미 데이터만").
      */
     public ScaleTestResponse verifyAll() {
-        List<com.ureca.myureca.domain.coupon.CouponPolicy> policies =
-                couponPolicyRepository.findByTitleStartingWithOrderByIdAsc(TITLE_PREFIX);
+        List<com.ureca.myureca.domain.coupon.CouponPolicy> policies = allPolicies();
         if (policies.isEmpty()) {
-            throw new IllegalStateException("시딩된 300만 건 규모 테스트 정책이 없습니다. 먼저 시딩하세요.");
+            throw new IllegalStateException("존재하는 정책이 없습니다.");
         }
 
         List<ScenarioResult> results = new ArrayList<>();
@@ -149,11 +154,14 @@ public class ScaleTestService {
         return new ScaleTestResponse(results, totalRows, POOL_SIZE);
     }
 
-    /** 검증을 새로 실행하지 않고, 지금까지 쌓인 최신 리포트 상태만 조회. */
+    /**
+     * 검증을 새로 실행하지 않고, 지금까지 쌓인 최신 리포트 상태만 조회. {@link #verifyAll()}과
+     * 스코프를 맞춰 존재하는 정책 전부를 대상으로 한다 — 안 그러면 verifyAll이 검증한
+     * 기존 정책들의 결과가 이 화면 표에서 안 보이게 된다.
+     */
     @Transactional(readOnly = true)
     public ScaleTestResponse status() {
-        List<com.ureca.myureca.domain.coupon.CouponPolicy> policies =
-                couponPolicyRepository.findByTitleStartingWithOrderByIdAsc(TITLE_PREFIX);
+        List<com.ureca.myureca.domain.coupon.CouponPolicy> policies = allPolicies();
         List<ScenarioResult> results = new ArrayList<>();
         for (com.ureca.myureca.domain.coupon.CouponPolicy policy : policies) {
             var latest = verificationReportRepository
@@ -182,6 +190,17 @@ public class ScaleTestService {
         } finally {
             enableIntegrityChecks();
         }
+    }
+
+    /**
+     * 존재하는(소프트 삭제 안 된) 정책 전부를 id 오름차순으로 — {@link #verifyAll()}/{@link #status()}
+     * 전용. {@link #deleteInternal()}은 일부러 이 메서드를 안 쓰고 {@code TITLE_PREFIX}로 계속
+     * 좁혀서 찾는다(삭제는 이 도구가 만든 더미 데이터만 건드려야 하므로).
+     */
+    private List<com.ureca.myureca.domain.coupon.CouponPolicy> allPolicies() {
+        return couponPolicyRepository.findByDeletedAtIsNull().stream()
+                .sorted(java.util.Comparator.comparing(com.ureca.myureca.domain.coupon.CouponPolicy::getId))
+                .toList();
     }
 
     /**

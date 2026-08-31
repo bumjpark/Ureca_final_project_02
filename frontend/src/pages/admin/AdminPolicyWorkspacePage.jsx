@@ -19,7 +19,7 @@ import { comma } from '../../lib/format.js';
 
 const TIMELINE_SECONDS = 120;
 
-function StatusTab({ policyId }) {
+function StatusTab({ policyId, policy }) {
   const statusQ = useQuery({
     queryKey: ['policy-status', policyId],
     queryFn: () => getCouponStatus(policyId),
@@ -59,7 +59,6 @@ function StatusTab({ policyId }) {
   //   그래프/사용·만료 = DB coupon_issue. Kafka 컨슈머가 행을 넣어야 반응한다.
   // 둘 사이의 간격이 곧 "확정 대기 중"인 건수라, 벌어졌을 때 화면에 드러나게 한다.
   const dbIssued = m?.totalIssuedEver ?? null;
-  const pendingConfirm = dbIssued != null ? s.issuedQuantity - dbIssued : null;
   // Redis stock 키가 통째로 없으면 remaining=총수량으로 방어돼 발급 0으로 보인다 — DB에는
   // 발급이 있는데 KPI만 0인 이 상태를 "정상"으로 오해하지 않도록 따로 잡아낸다.
   const redisStockMissing =
@@ -105,21 +104,6 @@ function StatusTab({ policyId }) {
         <Kpi label="예상 소진 시점" value={etaLabel} sub="현재 속도 기준" small source="mixed" />
       </div>
 
-      {/* 두 출처가 벌어진 만큼이 곧 "확정 대기 중"이다 */}
-      {pendingConfirm > 0 && (
-        <Card className="p-4">
-          <p className="text-[13px] text-ink">
-            <b className="nums">{comma(pendingConfirm)}건</b>이 아직 DB 확정 전이에요 — Redis 기준{' '}
-            <b className="nums">{comma(s.issuedQuantity)}</b>건, DB 확정{' '}
-            <b className="nums">{comma(dbIssued)}</b>건.
-          </p>
-          <p className="text-[12px] text-sub mt-1">
-            Redis는 발급 요청이 성공한 즉시, DB는 Kafka 컨슈머가 행을 넣은 뒤에 반영됩니다. 이 차이는
-            보통 1초 안에 사라져요.
-          </p>
-        </Card>
-      )}
-
       {/* 발급률 진행바 */}
       <Card className="p-5">
         <div className="flex items-end justify-between mb-2">
@@ -142,7 +126,9 @@ function StatusTab({ policyId }) {
           <h2 className="text-[15px] font-bold text-ink flex items-center gap-2">
             실시간 발급 추이 <SourceTag source="db" />
           </h2>
-          <Badge tone={soldOut ? 'done' : 'live'}>{soldOut ? '소진 · 정지' : '발급 중'}</Badge>
+          <Badge tone={policy?.status === 'BEFORE_OPEN' ? 'soon' : soldOut ? 'done' : 'live'}>
+            {policy?.status === 'BEFORE_OPEN' ? '오픈 전' : soldOut ? '소진 · 정지' : '발급 중'}
+          </Badge>
         </div>
         <p className="text-[12px] text-sub mb-3">
           최근 {TIMELINE_SECONDS}초, 1초 단위 확정 건수 · DB에 확정된 시점이 아니라 발급 요청이 성공한
@@ -166,20 +152,15 @@ function StatusTab({ policyId }) {
         <StatTile label="총 발행 수량" value={comma(s.totalQuantity)} />
       </div>
 
-      {/* 발급 소요 시간 — Redis(issued_at 기준)와 DB(created_at 기준) */}
-      {m && (m.redisElapsedMs != null || m.dbElapsedMs != null) && (
+      {/* 발급 소요 시간 — DB(created_at 기준) 반영 완료까지만 보여준다. Redis 완료 시간은
+          제외했다: Redis는 요청 성공 즉시라 사실상 항상 0에 가깝고, 실제로 궁금한 건 "사용자가
+          체감하는 전체 지연(E2E)"이기 때문이다. */}
+      {m && m.dbElapsedMs != null && (
         <>
           <div className="flex items-center gap-2 pt-1">
             <h2 className="text-[15px] font-bold text-ink">발급 소요 시간</h2>
           </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <ElapsedCard
-              label="Redis 발급 완료"
-              ms={m.redisElapsedMs}
-              sub="첫 issued_at ~ 마지막 issued_at"
-              desc="Redis Lua 스크립트로 재고 차감이 완료된 시간 범위"
-              source="redis"
-            />
+          <div className="grid grid-cols-1 max-w-md gap-4">
             <ElapsedCard
               label="DB 반영 완료 (E2E)"
               ms={m.dbElapsedMs}
@@ -327,7 +308,7 @@ export default function AdminPolicyWorkspacePage() {
 
       <Tabs options={tabOptions} value={tab} onChange={(v) => setSearchParams({ tab: v })} />
 
-      {tab === 'status' && <StatusTab policyId={policyId} />}
+      {tab === 'status' && <StatusTab policyId={policyId} policy={policyQ.data} />}
       {tab === 'load-test' && <LoadTestPanel policyId={policyId} />}
       {tab === 'queue' && <QueueControlPanel policyId={policyId} allowGlobalToggle={false} />}
       {tab === 'verification' && <VerificationPanel policyId={policyId} />}

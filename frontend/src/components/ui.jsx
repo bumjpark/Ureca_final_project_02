@@ -96,7 +96,7 @@ export function StatTile({ label, value }) {
   );
 }
 
-export function DataTable({ columns, rows, rowKey, empty = '데이터가 없습니다' }) {
+export function DataTable({ columns, rows, rowKey, empty = '데이터가 없습니다', onRowClick, isSelected }) {
   return (
     <div className="border border-hairline rounded-card overflow-hidden bg-white shadow-card">
       <table className="w-full border-collapse text-[13px]">
@@ -121,15 +121,24 @@ export function DataTable({ columns, rows, rowKey, empty = '데이터가 없습�
               </td>
             </tr>
           )}
-          {rows.map((row) => (
-            <tr key={rowKey(row)} className="border-b border-hairline last:border-b-0 hover:bg-surface transition-colors">
-              {columns.map((c) => (
-                <td key={c.key} className="px-3 py-3 text-ink align-middle">
-                  {c.render ? c.render(row) : row[c.key]}
-                </td>
-              ))}
-            </tr>
-          ))}
+          {rows.map((row) => {
+            const selected = isSelected?.(row);
+            return (
+              <tr
+                key={rowKey(row)}
+                onClick={onRowClick ? () => onRowClick(row) : undefined}
+                className={`border-b border-hairline last:border-b-0 transition-colors ${
+                  onRowClick ? 'cursor-pointer' : ''
+                } ${selected ? 'bg-mint-weak' : 'hover:bg-surface'}`}
+              >
+                {columns.map((c) => (
+                  <td key={c.key} className="px-3 py-3 text-ink align-middle">
+                    {c.render ? c.render(row) : row[c.key]}
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
