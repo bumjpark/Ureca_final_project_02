@@ -118,9 +118,50 @@ public class ScaleTestService {
 
             long totalRows = results.stream().mapToLong(ScenarioResult::couponIssueRows).sum();
             log.info("[ScaleTest] 시딩 완료. 정책 {}개, coupon_issue 합계 {}건", results.size(), totalRows);
+            resyncSequenceGenerators();
             return new ScaleTestResponse(results, totalRows, POOL_SIZE);
         } finally {
             enableIntegrityChecks();
+        }
+    }
+
+    /**
+     * {@code coupon_issue}/{@code coupon_history}는 네이티브 SQL로 직접 INSERT하기 때문에(위
+     * {@link #insertCouponIssue}, {@link #insertCouponHistoryForAllIssued} 등) MySQL의
+     * AUTO_INCREMENT 카운터만 올라갈 뿐, JPA {@code GenerationType.SEQUENCE}가 실제로 채번에
+     * 쓰는 별도 카운터 테이블(각각 {@code coupon_issue_seq}/{@code coupon_history_seq})은 전혀
+     * 갱신되지 않는다 — 이 두 채번기는 완전히 독립적이다.
+     *
+     * <p>이 상태에서 이 도구로 300만 건을 시딩하면 AUTO_INCREMENT는 300만대까지 올라가지만,
+     * Hibernate 시퀀스 카운터는 시딩 전 수준(수만 이하)에 그대로 머문다. 그 직후 실제 발급
+     * 플로우(Kafka 컨슈머의 {@code CouponIssueRepository.save()})가 이 낮은 카운터에서 ID를
+     * 받아오면, 그 ID는 이미 방금 시딩한 더미 데이터가 점유하고 있어 매번
+     * {@code Duplicate entry 'N' for key 'coupon_issue.PRIMARY'}로 INSERT가 실패한다 — 겉으로는
+     * 컨슈머의 "인박스 체크(멱등성)"가 중복으로 걸러낸 것처럼 로그가 찍히지만, 실제로는 전혀
+     * 다른 원인(PK 충돌)으로 매 건이 진짜 실패하는 것이라 Redis {@code reserved}만 쌓이고
+     * DB엔 아무것도 안 남는다(실측, 2026-08-31).
+     *
+     * <p>시딩 직후 두 카운터를 실제 MAX(id)+1 이상으로 강제로 맞춰서 이 충돌을 원천 차단한다.
+     * {@code WHERE s.next_val < m.next_id}로 걸어서, 이미 더 앞서 있는 카운터를 실수로 뒤로
+     * 되돌리지는 않는다(단조 증가만 허용).
+     */
+    private void resyncSequenceGenerators() {
+        int issueBumped = entityManager.createNativeQuery(
+                        "update coupon_issue_seq s "
+                                + "join (select coalesce(max(id), 0) + 1 as next_id from coupon_issue) m "
+                                + "set s.next_val = m.next_id "
+                                + "where s.next_val < m.next_id")
+                .executeUpdate();
+        int historyBumped = entityManager.createNativeQuery(
+                        "update coupon_history_seq s "
+                                + "join (select coalesce(max(id), 0) + 1 as next_id from coupon_history) m "
+                                + "set s.next_val = m.next_id "
+                                + "where s.next_val < m.next_id")
+                .executeUpdate();
+        if (issueBumped > 0 || historyBumped > 0) {
+            log.info("[ScaleTest] Hibernate 시퀀스 카운터를 실제 MAX(id) 이상으로 재동기화 완료 "
+                    + "(coupon_issue_seq bumped={}, coupon_history_seq bumped={}) — "
+                    + "이후 실제 발급 플로우의 PK 충돌을 방지", issueBumped, historyBumped);
         }
     }
 
