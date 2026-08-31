@@ -37,6 +37,8 @@ class RedisAutoRecoverySchedulerTest {
     @Mock
     private RedisRecoveryService redisRecoveryService;
     @Mock
+    private VerificationAsyncTrigger verificationAsyncTrigger;
+    @Mock
     private HealthCheckService healthCheckService;
 
     @InjectMocks
@@ -142,5 +144,115 @@ class RedisAutoRecoverySchedulerTest {
 
         verify(redisRecoveryService, never()).recover(1L);
         verify(redisRecoveryService, times(1)).recover(2L);
+    }
+
+    // ─── reconcileReservedDrift(부분 드리프트 정리) ───────────────────────────
+
+    @Test
+    void Redis가_DOWN이면_드리프트_정리도_건너뛴다() {
+        when(healthCheckService.check()).thenReturn(HealthResponse.of(REDIS_DOWN));
+
+        scheduler.reconcileReservedDrift();
+
+        verify(couponPolicyRepository, never()).findByDeletedAtIsNull(any(Pageable.class));
+        verify(redisRecoveryService, never()).reconcileReservedDrift(anyLong());
+    }
+
+    @Test
+    void 활성_정책마다_reconcileReservedDrift를_호출한다() {
+        when(healthCheckService.check()).thenReturn(HealthResponse.of(REDIS_UP));
+        when(couponPolicyRepository.findByDeletedAtIsNull(any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(activePolicy(1L), activePolicy(2L))));
+        when(redisRecoveryService.reconcileReservedDrift(1L)).thenReturn(0);
+        when(redisRecoveryService.reconcileReservedDrift(2L)).thenReturn(3);
+
+        scheduler.reconcileReservedDrift();
+
+        verify(redisRecoveryService, times(1)).reconcileReservedDrift(1L);
+        verify(redisRecoveryService, times(1)).reconcileReservedDrift(2L);
+    }
+
+    @Test
+    void 드리프트_정리_중_예상못한_예외가_나도_다른_정책_처리를_막지_않는다() {
+        when(healthCheckService.check()).thenReturn(HealthResponse.of(REDIS_UP));
+        when(couponPolicyRepository.findByDeletedAtIsNull(any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(activePolicy(1L), activePolicy(2L))));
+        when(redisRecoveryService.reconcileReservedDrift(1L))
+                .thenThrow(new IllegalStateException("예상 못한 오류"));
+        when(redisRecoveryService.reconcileReservedDrift(2L)).thenReturn(1);
+
+        scheduler.reconcileReservedDrift(); // 예외가 전파되지 않아야 한다
+
+        verify(redisRecoveryService, times(1)).reconcileReservedDrift(1L);
+        verify(redisRecoveryService, times(1)).reconcileReservedDrift(2L);
+    }
+
+    @Test
+    void 만료된_정책은_stock_복구와_마찬가지로_드리프트_정리_대상에서도_제외된다() {
+        CouponPolicy closedPolicy = activePolicy(3L);
+        org.springframework.test.util.ReflectionTestUtils.setField(
+                closedPolicy, "closeAt", LocalDateTime.now().minusHours(1));
+        when(healthCheckService.check()).thenReturn(HealthResponse.of(REDIS_UP));
+        when(couponPolicyRepository.findByDeletedAtIsNull(any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(closedPolicy)));
+
+        scheduler.reconcileReservedDrift();
+
+        verify(redisRecoveryService, never()).reconcileReservedDrift(anyLong());
+    }
+
+    // ─── detectStaleReservedDrift(Check D 자동 탐지·등록) ───────────────────────
+
+    @Test
+    void Redis가_DOWN이면_미아_예약_탐지도_건너뛴다() {
+        when(healthCheckService.check()).thenReturn(HealthResponse.of(REDIS_DOWN));
+
+        scheduler.detectStaleReservedDrift();
+
+        verify(couponPolicyRepository, never()).findByDeletedAtIsNull(any(Pageable.class));
+        verify(verificationAsyncTrigger, never()).detectAndRegisterStaleReserved(anyLong());
+    }
+
+    @Test
+    void 활성_정책마다_detectAndRegisterStaleReserved를_호출한다() {
+        when(healthCheckService.check()).thenReturn(HealthResponse.of(REDIS_UP));
+        when(couponPolicyRepository.findByDeletedAtIsNull(any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(activePolicy(1L), activePolicy(2L))));
+        when(verificationAsyncTrigger.detectAndRegisterStaleReserved(1L)).thenReturn(0);
+        when(verificationAsyncTrigger.detectAndRegisterStaleReserved(2L)).thenReturn(2);
+
+        scheduler.detectStaleReservedDrift();
+
+        verify(verificationAsyncTrigger, times(1)).detectAndRegisterStaleReserved(1L);
+        verify(verificationAsyncTrigger, times(1)).detectAndRegisterStaleReserved(2L);
+    }
+
+    @Test
+    void 미아_예약_탐지_중_예상못한_예외가_나도_다른_정책_처리를_막지_않는다() {
+        when(healthCheckService.check()).thenReturn(HealthResponse.of(REDIS_UP));
+        when(couponPolicyRepository.findByDeletedAtIsNull(any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(activePolicy(1L), activePolicy(2L))));
+        when(verificationAsyncTrigger.detectAndRegisterStaleReserved(1L))
+                .thenThrow(new IllegalStateException("예상 못한 오류"));
+        when(verificationAsyncTrigger.detectAndRegisterStaleReserved(2L)).thenReturn(1);
+
+        scheduler.detectStaleReservedDrift(); // 예외가 전파되지 않아야 한다
+
+        verify(verificationAsyncTrigger, times(1)).detectAndRegisterStaleReserved(1L);
+        verify(verificationAsyncTrigger, times(1)).detectAndRegisterStaleReserved(2L);
+    }
+
+    @Test
+    void 만료된_정책은_미아_예약_탐지_대상에서도_제외된다() {
+        CouponPolicy closedPolicy = activePolicy(3L);
+        org.springframework.test.util.ReflectionTestUtils.setField(
+                closedPolicy, "closeAt", LocalDateTime.now().minusHours(1));
+        when(healthCheckService.check()).thenReturn(HealthResponse.of(REDIS_UP));
+        when(couponPolicyRepository.findByDeletedAtIsNull(any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(closedPolicy)));
+
+        scheduler.detectStaleReservedDrift();
+
+        verify(verificationAsyncTrigger, never()).detectAndRegisterStaleReserved(anyLong());
     }
 }

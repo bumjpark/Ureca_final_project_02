@@ -1,0 +1,22 @@
+# 정합성 검증 300만 건 규모 실측용 완전 격리 오버레이 — container_name을 갈아끼워서
+# 라이브 개발 스택(coupon-*)과 절대 충돌하지 않게 한다. 테스트 후 통째로 삭제할 목적.
+#   MSYS_NO_PATHCONV=1 MYSQL_PORT=13307 REDIS_PORT=16379 KAFKA_PORT=19093 SERVER_PORT=18080 \
+#     docker compose -p scale3m -f docker-compose.yml -f docker-compose.scale3m.yml \
+#     up -d --build mysql redis kafka kafka-ui app
+#   ... (테스트) ...
+#   docker compose -p scale3m -f docker-compose.yml -f docker-compose.scale3m.yml down -v
+services:
+  mysql:
+    container_name: scale3m-mysql
+  redis:
+    container_name: scale3m-redis
+  kafka:
+    container_name: scale3m-kafka
+  kafka-ui:
+    container_name: scale3m-kafka-ui
+  app:
+    container_name: scale3m-app
+    # 2026-08-30 재검증: SMEMBERS -> SSCAN 전환(VerificationAsyncTrigger.readRedisIssuedUserIds)
+    # 이후로는 타임아웃을 안 늘려도(기본 spring.data.redis.timeout=1000ms 그대로) 300만 건 검증이
+    # 통과하는지가 이번 재현의 핵심이라, 예전에 여기 있던 SPRING_DATA_REDIS_TIMEOUT=5000ms
+    # 임시 오버라이드는 제거했다.

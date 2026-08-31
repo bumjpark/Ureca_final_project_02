@@ -25,6 +25,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.QueryTimeoutException;
+import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
@@ -187,10 +189,35 @@ class QueueServiceTest {
     }
 
     @Test
-    void Redis_호출_장애_시_서킷브레이커로_QueueFullException_503을_던진다() {
+    void Redis_연결_실패_시_QueueFullException으로_감싸지_않고_그대로_전파한다() {
+        // 예전에는 이것도 QueueFullException(errorCode=QUEUE_FULL)으로 감쌌다 — HTTP 상태(503)는
+        // 우연히 같아 클라이언트 재시도 동작은 문제없었지만, Redis 장애를 "용량 부족"으로
+        // 위장해서 실측(부하테스트 중 Redis 강제 종료)에서 운영 오판을 유발한 게 확인됐다.
+        // 이제 그대로 던져 GlobalExceptionHandler.handleRedisUnavailable이 REDIS_UNAVAILABLE로
+        // 정확히 분류하게 한다.
         when(couponPolicyCacheService.getPolicy(POLICY_ID)).thenReturn(openPolicy);
         when(redisTemplate.execute(eq(joinQueueScript), anyList(), anyString(), anyString()))
-                .thenThrow(new RuntimeException("Redis Connection Refused"));
+                .thenThrow(new RedisConnectionFailureException("Redis Connection Refused"));
+
+        assertThatThrownBy(() -> queueService.joinQueue(new QueueJoinRequest(POLICY_ID, USER_ID)))
+                .isInstanceOf(RedisConnectionFailureException.class);
+    }
+
+    @Test
+    void Redis_명령_타임아웃_시_QueueFullException으로_감싸지_않고_그대로_전파한다() {
+        when(couponPolicyCacheService.getPolicy(POLICY_ID)).thenReturn(openPolicy);
+        when(redisTemplate.execute(eq(joinQueueScript), anyList(), anyString(), anyString()))
+                .thenThrow(new QueryTimeoutException("Redis command timed out"));
+
+        assertThatThrownBy(() -> queueService.joinQueue(new QueueJoinRequest(POLICY_ID, USER_ID)))
+                .isInstanceOf(QueryTimeoutException.class);
+    }
+
+    @Test
+    void Redis_장애가_아닌_예상못한_오류는_방어적으로_QueueFullException을_던진다() {
+        when(couponPolicyCacheService.getPolicy(POLICY_ID)).thenReturn(openPolicy);
+        when(redisTemplate.execute(eq(joinQueueScript), anyList(), anyString(), anyString()))
+                .thenThrow(new IllegalArgumentException("unexpected"));
 
         assertThatThrownBy(() -> queueService.joinQueue(new QueueJoinRequest(POLICY_ID, USER_ID)))
                 .isInstanceOf(QueueFullException.class);
@@ -284,6 +311,26 @@ class QueueServiceTest {
 
         assertThatThrownBy(() -> queueService.getQueueStatus(POLICY_ID, USER_ID))
                 .isInstanceOf(com.ureca.myureca.exception.QueueNotRegisteredException.class);
+    }
+
+    @Test
+    void 상태_조회_중_Redis_연결_실패_시_QueueFullException으로_감싸지_않고_그대로_전파한다() {
+        when(couponPolicyCacheService.getPolicy(POLICY_ID)).thenReturn(openPolicy);
+        when(redisTemplate.execute(eq(getQueueStatusScript), anyList(), anyString()))
+                .thenThrow(new RedisConnectionFailureException("Redis Connection Refused"));
+
+        assertThatThrownBy(() -> queueService.getQueueStatus(POLICY_ID, USER_ID))
+                .isInstanceOf(RedisConnectionFailureException.class);
+    }
+
+    @Test
+    void 상태_조회_중_Redis가_아닌_예상못한_오류는_방어적으로_QueueFullException을_던진다() {
+        when(couponPolicyCacheService.getPolicy(POLICY_ID)).thenReturn(openPolicy);
+        when(redisTemplate.execute(eq(getQueueStatusScript), anyList(), anyString()))
+                .thenThrow(new IllegalArgumentException("unexpected"));
+
+        assertThatThrownBy(() -> queueService.getQueueStatus(POLICY_ID, USER_ID))
+                .isInstanceOf(QueueFullException.class);
     }
 
     @Test
