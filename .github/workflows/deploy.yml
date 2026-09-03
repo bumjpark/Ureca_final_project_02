@@ -1,0 +1,77 @@
+name: Deploy to EC2
+
+# main에 푸시되면 EC2 단일 인스턴스(docker compose)에 자동 배포한다.
+# 필요한 저장소 시크릿(Settings > Secrets and variables > Actions):
+#   EC2_HOST     배포 대상 EC2의 퍼블릭 IP/도메인
+#   EC2_SSH_KEY  배포 전용 SSH 개인키(ed25519) 전체 내용
+#
+# EC2 쪽 전제조건(최초 1회 수동 설정, 이 워크플로가 매번 덮어쓰지 않음):
+#   - Docker + Docker Compose plugin 설치
+#   - ~/.ssh/authorized_keys 에 위 EC2_SSH_KEY의 공개키 등록
+#   - ~/app/.env 에 실제 운영값 배치(git에는 올리지 않으므로 이 워크플로가 건드리지 않는다)
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # 프론트는 CI에서 미리 빌드해서 정적 파일만 넘긴다 — EC2에는 Node를 안 둔다.
+      # VITE_API_BASE는 비워둔 채로 빌드(기본값) — nginx가 /api를 같은 오리진에서 프록시하므로
+      # 프론트는 절대경로 없이 상대경로(/api/...)로 호출한다(frontend/src/lib/api.js 참고).
+      - name: 프론트 빌드
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      # 배포에 필요한 최소 파일만 묶는다. .env는 절대 포함하지 않는다 —
+      # EC2에 이미 있는 운영용 .env를 덮어쓰면 안 되기 때문이다.
+      - name: 배포 번들 패키징
+        run: |
+          mkdir -p deploy/web/dist
+          cp -r frontend/dist/. deploy/web/dist/
+          tar -czf deploy.tar.gz \
+            src build.gradle settings.gradle gradlew gradle \
+            Dockerfile docker-compose.yml docker-compose.deploy.yml scripts deploy
+
+      - name: EC2로 전송 및 재기동
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+          scp -i ~/.ssh/deploy_key deploy.tar.gz ubuntu@"$EC2_HOST":/home/ubuntu/deploy.tar.gz
+
+          ssh -i ~/.ssh/deploy_key ubuntu@"$EC2_HOST" '
+            set -e
+            mkdir -p ~/app
+            tar -xzf deploy.tar.gz -C ~/app
+            rm -f deploy.tar.gz
+            cd ~/app
+            sudo docker compose -f docker-compose.yml -f docker-compose.deploy.yml up -d --build
+            sudo docker image prune -f
+          '
+
+      - name: 헬스체크
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          for i in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://$EC2_HOST/api/health" || true)
+            [ "$code" = "200" ] && echo "배포 확인 완료 (health=$code)" && exit 0
+            sleep 5
+          done
+          echo "헬스체크 실패 — 배포 후 API가 응답하지 않습니다" >&2
+          exit 1
