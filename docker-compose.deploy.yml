@@ -1,0 +1,20 @@
+# EC2 단일 인스턴스 배포용 오버레이.
+# 프론트(nginx, deploy/web/)를 web 서비스로 추가하고 80번 포트로 노출한다.
+# app의 8080 포트는 web의 nginx가 /api로 프록시하므로 호스트에 직접 열 필요는 없지만,
+# 디버깅 편의를 위해 그대로 둔다.
+#
+# 사용법:
+#   cd frontend && npm run build && cp -r dist ../deploy/web/dist
+#   docker compose -f docker-compose.yml -f docker-compose.deploy.yml up -d --build
+services:
+  web:
+    build:
+      context: ./deploy/web
+    container_name: coupon-web
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - app
+    networks:
+      - coupon-network
