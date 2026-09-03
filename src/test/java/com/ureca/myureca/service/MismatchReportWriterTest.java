@@ -134,7 +134,9 @@ class MismatchReportWriterTest {
 
     @Test
     void 경로_형식_자체가_깨진_reportUrl도_IllegalStateException으로_통일해서_던진다() {
-        String malformed = tempDir.toString() + java.io.File.separator + "verification-1-1<>.csv";
+        // NUL 문자(\0)로 깨뜨린다 — <, >는 Windows에서만 금지 문자라 Linux(CI)에서는 그냥
+        // 통과해버린다. NUL은 OS 무관하게 항상 InvalidPathException을 던진다.
+        String malformed = tempDir.toString() + java.io.File.separator + "verification-1-1\0.csv";
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> writer().resolveExistingFile(malformed))
                 .isInstanceOf(IllegalStateException.class)
