@@ -70,6 +70,10 @@ class VerificationServiceTest {
     @TempDir
     Path tempDir;
 
+    // isStale()과 같은 타임존 기준(Asia/Seoul)으로 맞춘다 — 시스템 기본 타임존(UTC인 CI 등)에
+    // 의존하면 "방금 접수"가 좀비로 오판된다.
+    private static final java.time.ZoneId ZONE = java.time.ZoneId.of("Asia/Seoul");
+
     private VerificationService verificationService;
 
     @BeforeEach
@@ -191,7 +195,7 @@ class VerificationServiceTest {
     @Test
     void 이미_PENDING인_정책이면_새로_만들지_않고_기존_리포트를_반환한다() {
         CouponPolicy target = policy(1L);
-        VerificationReport existingPending = VerificationReport.pending(target, LocalDateTime.now());
+        VerificationReport existingPending = VerificationReport.pending(target, LocalDateTime.now(ZONE));
         ReflectionTestUtils.setField(existingPending, "id", 777L);
 
         when(couponPolicyRepository.findByDeletedAtIsNull()).thenReturn(List.of(target));
@@ -216,7 +220,7 @@ class VerificationServiceTest {
     @Test
     void 오래_방치된_PENDING_리포트는_FAILED로_정리하고_새_검증을_접수한다() {
         CouponPolicy target = policy(1L);
-        VerificationReport zombie = VerificationReport.pending(target, LocalDateTime.now().minusHours(3));
+        VerificationReport zombie = VerificationReport.pending(target, LocalDateTime.now(ZONE).minusHours(3));
         ReflectionTestUtils.setField(zombie, "id", 777L);
 
         when(couponPolicyRepository.findByDeletedAtIsNull()).thenReturn(List.of(target));
